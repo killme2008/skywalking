@@ -33,6 +33,7 @@ import org.apache.skywalking.oap.server.core.analysis.manual.searchtag.TagAutoco
 import org.apache.skywalking.oap.server.core.analysis.manual.searchtag.TagType;
 import org.apache.skywalking.oap.server.core.query.input.Duration;
 import org.apache.skywalking.oap.server.core.storage.query.ITagAutoCompleteQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static java.util.Objects.nonNull;
@@ -49,7 +50,7 @@ public class GreptimeDBTagAutoCompleteQueryDAO implements ITagAutoCompleteQueryD
         final List<Object> params = new ArrayList<>();
 
         sql.append("select distinct ").append(TagAutocompleteData.TAG_KEY)
-           .append(" from ").append(TagAutocompleteData.INDEX_NAME)
+           .append(" from ").append(GreptimeDBConverter.resolveTrafficTableName(TagAutocompleteData.INDEX_NAME))
            .append(" where ").append(TagAutocompleteData.TAG_TYPE).append(" = ?");
         params.add(tagType.name());
 
@@ -80,7 +81,7 @@ public class GreptimeDBTagAutoCompleteQueryDAO implements ITagAutoCompleteQueryD
         final List<Object> params = new ArrayList<>();
 
         sql.append("select ").append(TagAutocompleteData.TAG_VALUE)
-           .append(" from ").append(TagAutocompleteData.INDEX_NAME)
+           .append(" from ").append(GreptimeDBConverter.resolveTrafficTableName(TagAutocompleteData.INDEX_NAME))
            .append(" where ").append(TagAutocompleteData.TAG_KEY).append(" = ?");
         params.add(tagKey);
         sql.append(" and ").append(TagAutocompleteData.TAG_TYPE).append(" = ?");

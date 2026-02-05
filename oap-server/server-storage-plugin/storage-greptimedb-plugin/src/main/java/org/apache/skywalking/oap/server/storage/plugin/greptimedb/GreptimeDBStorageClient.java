@@ -27,8 +27,10 @@ import io.greptime.models.Result;
 import io.greptime.models.Table;
 import io.greptime.models.WriteOk;
 import io.greptime.options.GreptimeOptions;
+import io.grpc.Context;
 import java.io.IOException;
 import java.sql.Connection;
+import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.concurrent.CompletableFuture;
@@ -61,6 +63,10 @@ public class GreptimeDBStorageClient implements Client {
         this.grpcClient = GreptimeDB.create(builder.build());
         log.info("GreptimeDB gRPC client connected to: {}", config.getGrpcEndpoints());
 
+        // Ensure the target database exists before opening the connection pool.
+        // GreptimeDB does not auto-create databases; only 'public' exists by default.
+        ensureDatabaseExists();
+
         // JDBC pool for reads + DDL
         final HikariConfig hikari = new HikariConfig();
         hikari.setJdbcUrl("jdbc:mysql://" + config.getJdbcHost() + ":" +
@@ -75,11 +81,31 @@ public class GreptimeDBStorageClient implements Client {
     }
 
     public CompletableFuture<Result<WriteOk, Err>> write(final Table... tables) {
-        return grpcClient.write(tables);
+        // Detach from any server-side gRPC context to prevent the GreptimeDB
+        // write from being cancelled when an incoming OAP gRPC handler completes.
+        final Context prev = Context.ROOT.attach();
+        try {
+            return grpcClient.write(tables);
+        } finally {
+            Context.ROOT.detach(prev);
+        }
     }
 
     public Connection getConnection() throws SQLException {
         return jdbcDataSource.getConnection();
+    }
+
+    private void ensureDatabaseExists() throws SQLException {
+        final String database = config.getDatabase();
+        final String bootstrapUrl = "jdbc:mysql://" + config.getJdbcHost() + ":"
+            + config.getJdbcPort() + "/public";
+        try (Connection conn = config.getUser().isEmpty()
+                ? DriverManager.getConnection(bootstrapUrl)
+                : DriverManager.getConnection(bootstrapUrl, config.getUser(), config.getPassword());
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE DATABASE IF NOT EXISTS `" + database + "`");
+            log.info("Ensured GreptimeDB database '{}' exists", database);
+        }
     }
 
     public void executeDDL(final String sql) throws SQLException {

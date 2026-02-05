@@ -18,7 +18,10 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
+import io.greptime.models.Err;
+import io.greptime.models.Result;
 import io.greptime.models.Table;
+import io.greptime.models.WriteOk;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -48,7 +51,12 @@ public class GreptimeDBNoneStreamDAO implements INoneStreamDAO {
         table.complete();
 
         try {
-            client.write(table).get();
+            final Result<WriteOk, Err> result = client.write(table).get();
+            if (result != null && !result.isOk()) {
+                throw new IOException("GreptimeDB write error for " + model.getName() + ": " + result.getErr());
+            }
+        } catch (IOException e) {
+            throw e;
         } catch (Exception e) {
             throw new IOException("Failed to insert NoneStream to GreptimeDB: " + model.getName(), e);
         }

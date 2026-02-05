@@ -94,9 +94,9 @@ public class GreptimeDBBrowserLogQueryDAO implements IBrowserLogQueryDAO {
             setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    final String dataBinaryBase64 = rs.getString(BrowserErrorLogRecord.DATA_BINARY);
-                    if (nonNull(dataBinaryBase64)) {
-                        logs.add(parserDataBinary(dataBinaryBase64));
+                    final byte[] dataBinary = rs.getBytes(BrowserErrorLogRecord.DATA_BINARY);
+                    if (dataBinary != null && dataBinary.length > 0) {
+                        logs.add(parserDataBinary(dataBinary));
                     }
                 }
             }

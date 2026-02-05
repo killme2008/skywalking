@@ -70,10 +70,12 @@ public class SchemaRegistry {
 
         final TableSchema.Builder builder = TableSchema.newBuilder(tableName);
         final List<String> columnNames = new ArrayList<>();
+        final List<DataType> dataTypes = new ArrayList<>();
 
         // Synthetic id column (computed by StorageData.id().build(), not a @Column).
         // For non-timeSeries it is a PK (tag); for timeSeries it is a regular field.
         columnNames.add("id");
+        dataTypes.add(DataType.String);
         if (pkColumns.contains("id")) {
             builder.addTag("id", DataType.String);
         } else {
@@ -84,6 +86,7 @@ public class SchemaRegistry {
             final String colName = col.getColumnName().getStorageName();
             final DataType dataType = GreptimeDBConverter.mapDataType(col);
             columnNames.add(colName);
+            dataTypes.add(dataType);
 
             if (pkColumns.contains(colName)) {
                 builder.addTag(colName, dataType);
@@ -95,21 +98,27 @@ public class SchemaRegistry {
         // TIME INDEX column (always last)
         builder.addTimestamp("greptime_ts", DataType.TimestampMillisecond);
         columnNames.add("greptime_ts");
+        dataTypes.add(DataType.TimestampMillisecond);
 
-        return new WriteSchemaInfo(builder.build(), columnNames);
+        return new WriteSchemaInfo(builder.build(), columnNames, dataTypes);
     }
 
     /**
-     * Holds a gRPC TableSchema and the ordered column names for building rows.
+     * Holds a gRPC TableSchema, the ordered column names, and their expected DataTypes
+     * for building rows with defensive type coercion.
      */
     @Getter
     public static class WriteSchemaInfo {
         private final TableSchema tableSchema;
         private final List<String> columnNames;
+        private final List<DataType> dataTypes;
 
-        public WriteSchemaInfo(final TableSchema tableSchema, final List<String> columnNames) {
+        public WriteSchemaInfo(final TableSchema tableSchema,
+                               final List<String> columnNames,
+                               final List<DataType> dataTypes) {
             this.tableSchema = tableSchema;
             this.columnNames = columnNames;
+            this.dataTypes = dataTypes;
         }
     }
 }

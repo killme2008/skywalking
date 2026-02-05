@@ -24,7 +24,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -34,7 +33,6 @@ import org.apache.skywalking.oap.server.core.analysis.manual.spanattach.SWSpanAt
 import org.apache.skywalking.oap.server.core.analysis.manual.spanattach.SpanAttachedEventRecord;
 import org.apache.skywalking.oap.server.core.query.input.Duration;
 import org.apache.skywalking.oap.server.core.storage.query.ISpanAttachedEventQueryDAO;
-import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 @RequiredArgsConstructor
@@ -73,9 +71,9 @@ public class GreptimeDBSpanAttachedEventQueryDAO implements ISpanAttachedEventQu
                     record.setRelatedTraceId(rs.getString(SWSpanAttachedEventRecord.RELATED_TRACE_ID));
                     record.setTraceSegmentId(rs.getString(SWSpanAttachedEventRecord.TRACE_SEGMENT_ID));
                     record.setTraceSpanId(rs.getString(SWSpanAttachedEventRecord.TRACE_SPAN_ID));
-                    final String dataBinaryBase64 = rs.getString(SWSpanAttachedEventRecord.DATA_BINARY);
-                    if (StringUtil.isNotEmpty(dataBinaryBase64)) {
-                        record.setDataBinary(Base64.getDecoder().decode(dataBinaryBase64));
+                    final byte[] dataBinary = rs.getBytes(SWSpanAttachedEventRecord.DATA_BINARY);
+                    if (dataBinary != null && dataBinary.length > 0) {
+                        record.setDataBinary(dataBinary);
                     }
                     results.add(record);
                 }
@@ -121,9 +119,9 @@ public class GreptimeDBSpanAttachedEventQueryDAO implements ISpanAttachedEventQu
                     record.setRelatedTraceId(rs.getString(SpanAttachedEventRecord.RELATED_TRACE_ID));
                     record.setTraceSegmentId(rs.getString(SpanAttachedEventRecord.TRACE_SEGMENT_ID));
                     record.setTraceSpanId(rs.getString(SpanAttachedEventRecord.TRACE_SPAN_ID));
-                    final String dataBinaryBase64 = rs.getString(SpanAttachedEventRecord.DATA_BINARY);
-                    if (StringUtil.isNotEmpty(dataBinaryBase64)) {
-                        record.setDataBinary(Base64.getDecoder().decode(dataBinaryBase64));
+                    final byte[] dataBinary = rs.getBytes(SpanAttachedEventRecord.DATA_BINARY);
+                    if (dataBinary != null && dataBinary.length > 0) {
+                        record.setDataBinary(dataBinary);
                     }
                     results.add(record);
                 }

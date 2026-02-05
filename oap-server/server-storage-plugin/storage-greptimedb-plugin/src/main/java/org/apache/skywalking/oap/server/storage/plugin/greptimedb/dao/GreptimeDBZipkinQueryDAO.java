@@ -43,6 +43,7 @@ import org.apache.skywalking.oap.server.core.zipkin.ZipkinServiceTraffic;
 import org.apache.skywalking.oap.server.core.zipkin.ZipkinSpanRecord;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 import zipkin2.Endpoint;
 import zipkin2.Span;
@@ -57,7 +58,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
     @Override
     public List<String> getServiceNames() throws IOException {
         final String sql = "select " + ZipkinServiceTraffic.SERVICE_NAME
-            + " from " + ZipkinServiceTraffic.INDEX_NAME
+            + " from " + GreptimeDBConverter.resolveTrafficTableName(ZipkinServiceTraffic.INDEX_NAME)
             + " limit " + NAME_QUERY_MAX_SIZE;
         final List<String> services = new ArrayList<>();
         try (Connection conn = client.getConnection();
@@ -75,7 +76,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
     @Override
     public List<String> getRemoteServiceNames(final String serviceName) throws IOException {
         final String sql = "select " + ZipkinServiceRelationTraffic.REMOTE_SERVICE_NAME
-            + " from " + ZipkinServiceRelationTraffic.INDEX_NAME
+            + " from " + GreptimeDBConverter.resolveTrafficTableName(ZipkinServiceRelationTraffic.INDEX_NAME)
             + " where " + ZipkinServiceRelationTraffic.SERVICE_NAME + " = ?"
             + " limit " + NAME_QUERY_MAX_SIZE;
         final List<String> remoteServices = new ArrayList<>();
@@ -97,7 +98,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
     @Override
     public List<String> getSpanNames(final String serviceName) throws IOException {
         final String sql = "select " + ZipkinServiceSpanTraffic.SPAN_NAME
-            + " from " + ZipkinServiceSpanTraffic.INDEX_NAME
+            + " from " + GreptimeDBConverter.resolveTrafficTableName(ZipkinServiceSpanTraffic.INDEX_NAME)
             + " where " + ZipkinServiceSpanTraffic.SERVICE_NAME + " = ?"
             + " limit " + NAME_QUERY_MAX_SIZE;
         final List<String> spanNames = new ArrayList<>();

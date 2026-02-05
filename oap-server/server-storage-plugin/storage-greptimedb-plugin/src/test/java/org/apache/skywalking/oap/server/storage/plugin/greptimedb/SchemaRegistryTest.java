@@ -18,6 +18,7 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 
+import io.greptime.models.DataType;
 import java.util.List;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.junit.jupiter.api.BeforeEach;
@@ -129,5 +130,27 @@ class SchemaRegistryTest {
         // model columns + id + greptime_ts
         final int expected = model.getColumns().size() + 2;
         assertEquals(expected, info.getColumnNames().size());
+    }
+
+    // ---- dataTypes list ----
+
+    @Test
+    void getWriteSchemaDataTypesShouldMatchColumnNames() {
+        final Model model = TestModels.sampleMetricsModel();
+        final SchemaRegistry.WriteSchemaInfo info = registry.getWriteSchema(model);
+
+        final List<String> colNames = info.getColumnNames();
+        final List<DataType> dataTypes = info.getDataTypes();
+
+        assertEquals(colNames.size(), dataTypes.size(),
+            "dataTypes list size must match columnNames list size");
+
+        // Verify specific types: id -> String, service_id -> String,
+        // time_bucket -> Int64, summation -> Int64, greptime_ts -> TimestampMillisecond
+        assertEquals(DataType.String, dataTypes.get(colNames.indexOf("id")));
+        assertEquals(DataType.String, dataTypes.get(colNames.indexOf("service_id")));
+        assertEquals(DataType.Int64, dataTypes.get(colNames.indexOf("time_bucket")));
+        assertEquals(DataType.Int64, dataTypes.get(colNames.indexOf("summation")));
+        assertEquals(DataType.TimestampMillisecond, dataTypes.get(colNames.indexOf("greptime_ts")));
     }
 }
