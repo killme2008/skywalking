@@ -45,7 +45,7 @@ public class GreptimeDBHierarchyQueryDAO implements IHierarchyQueryDAO {
 
     @Override
     public List<ServiceHierarchyRelationTraffic> readAllServiceHierarchyRelations() throws Exception {
-        final String sql = "select * from " + ServiceHierarchyRelationTraffic.INDEX_NAME
+        final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(ServiceHierarchyRelationTraffic.INDEX_NAME)
             + " limit " + queryMaxSize;
         final List<ServiceHierarchyRelationTraffic> results = new ArrayList<>();
         try (Connection conn = client.getConnection();
@@ -66,7 +66,7 @@ public class GreptimeDBHierarchyQueryDAO implements IHierarchyQueryDAO {
     public List<InstanceHierarchyRelationTraffic> readInstanceHierarchyRelations(
             final String instanceId, final String layer) throws Exception {
         final int layerValue = Layer.valueOf(layer).value();
-        final String sql = "select * from " + InstanceHierarchyRelationTraffic.INDEX_NAME
+        final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(InstanceHierarchyRelationTraffic.INDEX_NAME)
             + " where ((" + InstanceHierarchyRelationTraffic.INSTANCE_ID + " = ?"
             + " and " + InstanceHierarchyRelationTraffic.SERVICE_LAYER + " = ?)"
             + " or (" + InstanceHierarchyRelationTraffic.RELATED_INSTANCE_ID + " = ?"

@@ -81,9 +81,8 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
         }
         if (CollectionUtils.isNotEmpty(tags)) {
             for (final Tag tag : tags) {
-                sql.append(" and json_path_match(").append(AlarmRecord.TAGS)
-                   .append(", '$[\"").append(tag.getKey())
-                   .append("\"] == \"").append(tag.getValue()).append("\"')");
+                sql.append(" and json_path_match(").append(AlarmRecord.TAGS).append(", ?)");
+                params.add(buildJsonPathMatchExpr(tag.getKey(), tag.getValue()));
             }
         }
         sql.append(" order by ").append(AlarmRecord.START_TIME).append(" desc");
@@ -162,6 +161,14 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
                 msg.setRecoveryTime(recovery.getRecoveryTime());
             }
         });
+    }
+
+    private static String buildJsonPathMatchExpr(final String key, final String value) {
+        return "$[\"" + escapeJsonPath(key) + "\"] == \"" + escapeJsonPath(value) + "\"";
+    }
+
+    private static String escapeJsonPath(final String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private void setParameters(final PreparedStatement ps,

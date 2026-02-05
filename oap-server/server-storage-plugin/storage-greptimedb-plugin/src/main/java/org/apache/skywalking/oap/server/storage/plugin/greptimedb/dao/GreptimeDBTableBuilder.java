@@ -18,6 +18,7 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
+import io.greptime.models.DataType;
 import io.greptime.models.Table;
 import java.util.List;
 import java.util.Map;
@@ -57,18 +58,20 @@ public final class GreptimeDBTableBuilder {
         storageBuilder.entity2Storage(entity, converter);
         final Map<String, Object> storageMap = converter.obtain();
 
-        // Build row values in schema column order
+        // Build row values in schema column order, coercing types to match SDK expectations
         final List<String> columnNames = schemaInfo.getColumnNames();
+        final List<DataType> dataTypes = schemaInfo.getDataTypes();
         final Object[] row = new Object[columnNames.size()];
         for (int i = 0; i < columnNames.size(); i++) {
             final String colName = columnNames.get(i);
+            final DataType expectedType = dataTypes.get(i);
             if ("greptime_ts".equals(colName)) {
                 row[i] = greptimeTs;
             } else if ("id".equals(colName)) {
                 // Synthetic id: computed by StorageData, not part of StorageBuilder output
                 row[i] = entity.id().build();
             } else {
-                row[i] = normalizeValue(storageMap.get(colName));
+                row[i] = coerceValue(storageMap.get(colName), expectedType);
             }
         }
 
@@ -78,10 +81,11 @@ public final class GreptimeDBTableBuilder {
     }
 
     /**
-     * Normalize values for GreptimeDB SDK compatibility.
-     * StorageDataComplexObject instances are serialized to String via toStorageData().
+     * Coerce a value to match the GreptimeDB SDK's expected Java type for the given DataType.
+     * The SDK's RowHelper.addValue() performs strict casts (e.g. (String) for String,
+     * (int) for Int32), so we must ensure the value is the exact expected type.
      */
-    private static Object normalizeValue(final Object value) {
+    static Object coerceValue(final Object value, final DataType expectedType) {
         if (value == null) {
             return null;
         }
@@ -89,6 +93,38 @@ public final class GreptimeDBTableBuilder {
             return ((org.apache.skywalking.oap.server.core.storage.type.StorageDataComplexObject<?>) value)
                 .toStorageData();
         }
-        return value;
+        switch (expectedType) {
+            case String:
+                return value instanceof String ? value : value.toString();
+            case Int32:
+                if (value instanceof Integer) {
+                    return value;
+                }
+                if (value instanceof Number) {
+                    return ((Number) value).intValue();
+                }
+                return value;
+            case Int64:
+                // SDK uses ValueUtil.getLongValue() which handles Integer/Long/Number
+                return value;
+            case Float64:
+                if (value instanceof Double) {
+                    return value;
+                }
+                if (value instanceof Number) {
+                    return ((Number) value).doubleValue();
+                }
+                return value;
+            case Float32:
+                if (value instanceof Float) {
+                    return value;
+                }
+                if (value instanceof Number) {
+                    return ((Number) value).floatValue();
+                }
+                return value;
+            default:
+                return value;
+        }
     }
 }

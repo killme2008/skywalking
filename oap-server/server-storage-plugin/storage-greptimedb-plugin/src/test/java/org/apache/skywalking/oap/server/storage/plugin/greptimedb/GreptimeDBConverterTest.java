@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
+import org.apache.skywalking.oap.server.core.analysis.Layer;
 import org.apache.skywalking.oap.server.core.analysis.metrics.DataTable;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
@@ -379,5 +380,27 @@ class GreptimeDBConverterTest {
         assertEquals(1, bytes[0]);
         assertEquals(2, bytes[1]);
         assertEquals(3, bytes[2]);
+    }
+
+    // ---- mapToSqlType / mapDataType for enum types ----
+
+    @Test
+    void mapToSqlTypeShouldReturnIntForEnumColumn() {
+        assertEquals("INT", GreptimeDBConverter.mapToSqlType(TestModels.col("layer", Layer.class)));
+    }
+
+    @Test
+    void mapDataTypeShouldReturnInt32ForEnumColumn() {
+        assertEquals(DataType.Int32, GreptimeDBConverter.mapDataType(TestModels.col("layer", Layer.class)));
+    }
+
+    // ---- resolveTrafficTableName ----
+
+    @Test
+    void resolveTrafficTableNameShouldAppendMinuteSuffix() {
+        assertEquals("network_address_alias_minute",
+            GreptimeDBConverter.resolveTrafficTableName("network_address_alias"));
+        assertEquals("service_traffic_minute",
+            GreptimeDBConverter.resolveTrafficTableName("service_traffic"));
     }
 }

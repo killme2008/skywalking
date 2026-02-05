@@ -25,7 +25,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -291,9 +290,9 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
             record.setStartTime(rs.getLong(SegmentRecord.START_TIME));
             record.setLatency(rs.getInt(SegmentRecord.LATENCY));
             record.setIsError(rs.getInt(SegmentRecord.IS_ERROR));
-            final String dataBinaryBase64 = rs.getString(SegmentRecord.DATA_BINARY);
-            if (!Strings.isNullOrEmpty(dataBinaryBase64)) {
-                record.setDataBinary(Base64.getDecoder().decode(dataBinaryBase64));
+            final byte[] dataBinary = rs.getBytes(SegmentRecord.DATA_BINARY);
+            if (dataBinary != null) {
+                record.setDataBinary(dataBinary);
             }
             records.add(record);
         }

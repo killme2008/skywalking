@@ -79,6 +79,9 @@ public final class GreptimeDBConverter {
             return "STRING";
         } else if (List.class.isAssignableFrom(type)) {
             return "JSON";
+        } else if (type.isEnum()) {
+            // Enum fields (e.g. Layer, ProfileLanguageType) are stored as int by StorageBuilder
+            return "INT";
         } else {
             return "STRING";
         }
@@ -106,6 +109,9 @@ public final class GreptimeDBConverter {
             return DataType.String;
         } else if (List.class.isAssignableFrom(type)) {
             return DataType.Json;
+        } else if (type.isEnum()) {
+            // Enum fields (e.g. Layer, ProfileLanguageType) are stored as int by StorageBuilder
+            return DataType.Int32;
         } else {
             return DataType.String;
         }
@@ -145,6 +151,15 @@ public final class GreptimeDBConverter {
      */
     public static String resolveMetricsTableName(final String metricName, final Step step) {
         return metricName + "_" + step.name().toLowerCase();
+    }
+
+    /**
+     * Resolve the GreptimeDB table name for non-downsampled Metrics (traffic/metadata).
+     * MetricsStreamProcessor always registers them with DownSampling.Minute,
+     * so the actual GreptimeDB table has a "_minute" suffix.
+     */
+    public static String resolveTrafficTableName(final String indexName) {
+        return indexName + "_minute";
     }
 
     /**
@@ -352,6 +367,9 @@ public final class GreptimeDBConverter {
                 map.put(colName, rs.getDouble(colName));
             } else if (float.class.equals(type) || Float.class.equals(type)) {
                 map.put(colName, rs.getFloat(colName));
+            } else if (type.isEnum()) {
+                // Enum fields are stored as int
+                map.put(colName, rs.getInt(colName));
             } else {
                 map.put(colName, rs.getString(colName));
             }

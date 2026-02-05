@@ -18,7 +18,6 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
-import com.google.common.base.Strings;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -144,9 +143,9 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
                     log.setTimestamp(rs.getLong(TIMESTAMP));
                     log.setContentType(ContentType.instanceOf(rs.getInt(CONTENT_TYPE)));
                     log.setContent(rs.getString(CONTENT));
-                    final String dataBinaryBase64 = rs.getString(TAGS_RAW_DATA);
-                    if (!Strings.isNullOrEmpty(dataBinaryBase64)) {
-                        parserDataBinary(dataBinaryBase64, log.getTags());
+                    final byte[] tagsRawData = rs.getBytes(TAGS_RAW_DATA);
+                    if (tagsRawData != null && tagsRawData.length > 0) {
+                        parserDataBinary(tagsRawData, log.getTags());
                     }
                     logs.add(log);
                 }

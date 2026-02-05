@@ -28,6 +28,7 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.manual.process.ServiceLabelRecord;
 import org.apache.skywalking.oap.server.core.storage.profiling.ebpf.IServiceLabelDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 @RequiredArgsConstructor
@@ -37,7 +38,7 @@ public class GreptimeDBServiceLabelDAO implements IServiceLabelDAO {
     @Override
     public List<String> queryAllLabels(final String serviceId) throws IOException {
         final String sql = "select " + ServiceLabelRecord.LABEL
-            + " from " + ServiceLabelRecord.INDEX_NAME
+            + " from " + GreptimeDBConverter.resolveTrafficTableName(ServiceLabelRecord.INDEX_NAME)
             + " where " + ServiceLabelRecord.SERVICE_ID + " = ?";
         final List<String> labels = new ArrayList<>();
         try (Connection conn = client.getConnection();
