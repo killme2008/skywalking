@@ -23,7 +23,6 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -170,7 +169,14 @@ public final class GreptimeDBConverter {
         final Map<String, Object> map = new HashMap<>();
         final ResultSetMetaData meta = rs.getMetaData();
         for (int i = 1; i <= meta.getColumnCount(); i++) {
-            map.put(meta.getColumnName(i), rs.getObject(i));
+            final int sqlType = meta.getColumnType(i);
+            if (sqlType == java.sql.Types.BINARY
+                || sqlType == java.sql.Types.VARBINARY
+                || sqlType == java.sql.Types.LONGVARBINARY) {
+                map.put(meta.getColumnName(i), rs.getBytes(i));
+            } else {
+                map.put(meta.getColumnName(i), rs.getObject(i));
+            }
         }
         return map;
     }
@@ -306,12 +312,13 @@ public final class GreptimeDBConverter {
             if (value instanceof byte[]) {
                 return (byte[]) value;
             }
-            // Base64 fallback for String-encoded binary
+            // GreptimeDB stores BINARY columns directly (not Base64-encoded).
+            // When the JDBC driver returns a String, convert it back to bytes using UTF-8.
             final String str = value.toString();
             if (StringUtil.isEmpty(str)) {
                 return new byte[0];
             }
-            return Base64.getDecoder().decode(str);
+            return str.getBytes(java.nio.charset.StandardCharsets.UTF_8);
         }
     }
 
