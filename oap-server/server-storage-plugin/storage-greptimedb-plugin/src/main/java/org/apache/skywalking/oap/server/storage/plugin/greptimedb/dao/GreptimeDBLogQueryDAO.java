@@ -53,6 +53,8 @@ import static org.apache.skywalking.oap.server.core.analysis.manual.log.Abstract
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TIME_BUCKET;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_ID;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_SEGMENT_ID;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
 public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
@@ -162,27 +164,4 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
         );
     }
 
-    private static String buildJsonPathMatchExpr(final String key, final String value) {
-        return "$[\"" + escapeJsonPath(key) + "\"] == \"" + escapeJsonPath(value) + "\"";
-    }
-
-    private static String escapeJsonPath(final String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-
-    private void setParameters(final PreparedStatement ps,
-                               final List<Object> params) throws SQLException {
-        for (int i = 0; i < params.size(); i++) {
-            final Object param = params.get(i);
-            if (param instanceof Long) {
-                ps.setLong(i + 1, (Long) param);
-            } else if (param instanceof Integer) {
-                ps.setInt(i + 1, (Integer) param);
-            } else if (param instanceof String) {
-                ps.setString(i + 1, (String) param);
-            } else {
-                ps.setObject(i + 1, param);
-            }
-        }
-    }
 }

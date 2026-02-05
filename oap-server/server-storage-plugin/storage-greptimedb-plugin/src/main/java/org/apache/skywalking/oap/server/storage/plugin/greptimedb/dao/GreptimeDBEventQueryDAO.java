@@ -43,6 +43,7 @@ import static com.google.common.base.Strings.isNullOrEmpty;
 import static java.util.Comparator.comparing;
 import static java.util.Objects.isNull;
 import static java.util.stream.Collectors.toList;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
 public class GreptimeDBEventQueryDAO implements IEventQueryDAO {
@@ -220,19 +221,4 @@ public class GreptimeDBEventQueryDAO implements IEventQueryDAO {
         return event;
     }
 
-    private void setParameters(final PreparedStatement ps,
-                               final List<Object> params) throws SQLException {
-        for (int i = 0; i < params.size(); i++) {
-            final Object param = params.get(i);
-            if (param instanceof Long) {
-                ps.setLong(i + 1, (Long) param);
-            } else if (param instanceof Integer) {
-                ps.setInt(i + 1, (Integer) param);
-            } else if (param instanceof String) {
-                ps.setString(i + 1, (String) param);
-            } else {
-                ps.setObject(i + 1, param);
-            }
-        }
-    }
 }

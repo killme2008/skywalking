@@ -37,6 +37,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConv
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static java.util.Objects.nonNull;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
 public class GreptimeDBTagAutoCompleteQueryDAO implements ITagAutoCompleteQueryDAO {
@@ -124,17 +125,4 @@ public class GreptimeDBTagAutoCompleteQueryDAO implements ITagAutoCompleteQueryD
         }
     }
 
-    private void setParameters(final PreparedStatement ps,
-                               final List<Object> params) throws SQLException {
-        for (int i = 0; i < params.size(); i++) {
-            final Object param = params.get(i);
-            if (param instanceof Long) {
-                ps.setLong(i + 1, (Long) param);
-            } else if (param instanceof String) {
-                ps.setString(i + 1, (String) param);
-            } else {
-                ps.setObject(i + 1, param);
-            }
-        }
-    }
 }

@@ -55,6 +55,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConv
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static org.apache.skywalking.oap.server.core.analysis.manual.instance.InstanceTraffic.PropertyUtil.LANGUAGE;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @Slf4j
 public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
@@ -421,19 +422,4 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
         }
     }
 
-    private static void setParameters(final PreparedStatement ps,
-                                       final List<Object> params) throws SQLException {
-        for (int i = 0; i < params.size(); i++) {
-            final Object param = params.get(i);
-            if (param instanceof String) {
-                ps.setString(i + 1, (String) param);
-            } else if (param instanceof Long) {
-                ps.setLong(i + 1, (Long) param);
-            } else if (param instanceof Integer) {
-                ps.setInt(i + 1, (Integer) param);
-            } else {
-                ps.setObject(i + 1, param);
-            }
-        }
-    }
 }

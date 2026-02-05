@@ -45,6 +45,8 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStor
 import static java.util.Comparator.comparing;
 import static java.util.Objects.nonNull;
 import static java.util.stream.Collectors.toList;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
 public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
@@ -164,27 +166,4 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
         });
     }
 
-    private static String buildJsonPathMatchExpr(final String key, final String value) {
-        return "$[\"" + escapeJsonPath(key) + "\"] == \"" + escapeJsonPath(value) + "\"";
-    }
-
-    private static String escapeJsonPath(final String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
-
-    private void setParameters(final PreparedStatement ps,
-                               final List<Object> params) throws SQLException {
-        for (int i = 0; i < params.size(); i++) {
-            final Object param = params.get(i);
-            if (param instanceof Long) {
-                ps.setLong(i + 1, (Long) param);
-            } else if (param instanceof Integer) {
-                ps.setInt(i + 1, (Integer) param);
-            } else if (param instanceof String) {
-                ps.setString(i + 1, (String) param);
-            } else {
-                ps.setObject(i + 1, param);
-            }
-        }
-    }
 }

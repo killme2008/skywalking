@@ -39,6 +39,8 @@ import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+
 @RequiredArgsConstructor
 public class GreptimeDBAggregationQueryDAO implements IAggregationQueryDAO {
     private final GreptimeDBStorageClient client;
@@ -92,16 +94,7 @@ public class GreptimeDBAggregationQueryDAO implements IAggregationQueryDAO {
         final List<SelectedRecord> results = new ArrayList<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                final Object param = params.get(i);
-                if (param instanceof Long) {
-                    ps.setLong(i + 1, (Long) param);
-                } else if (param instanceof String) {
-                    ps.setString(i + 1, (String) param);
-                } else {
-                    ps.setObject(i + 1, param);
-                }
-            }
+            setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     final SelectedRecord record = new SelectedRecord();
