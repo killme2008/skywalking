@@ -43,8 +43,12 @@ import org.apache.skywalking.oap.server.core.query.type.TraceState;
 import org.apache.skywalking.oap.server.core.storage.query.ITraceQueryDAO;
 import org.apache.skywalking.oap.server.library.util.BooleanUtils;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
+
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
+
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -162,16 +166,7 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
         final List<BasicTrace> traces = new ArrayList<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                final Object param = params.get(i);
-                if (param instanceof Long) {
-                    ps.setLong(i + 1, (Long) param);
-                } else if (param instanceof String) {
-                    ps.setString(i + 1, (String) param);
-                } else {
-                    ps.setObject(i + 1, param);
-                }
-            }
+            setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     final BasicTrace basicTrace = new BasicTrace();
@@ -268,14 +263,6 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
     @Override
     public List<Span> doFlexibleTraceQuery(final String traceId) {
         return Collections.emptyList();
-    }
-
-    private static String buildJsonPathMatchExpr(final String key, final String value) {
-        return "$[\"" + escapeJsonPath(key) + "\"] == \"" + escapeJsonPath(value) + "\"";
-    }
-
-    private static String escapeJsonPath(final String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private List<SegmentRecord> buildRecords(final ResultSet rs) throws SQLException {

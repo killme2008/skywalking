@@ -42,6 +42,8 @@ import org.apache.skywalking.oap.server.core.storage.query.ITopologyQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+
 @RequiredArgsConstructor
 public class GreptimeDBTopologyQueryDAO implements ITopologyQueryDAO {
     private final GreptimeDBStorageClient client;
@@ -324,17 +326,4 @@ public class GreptimeDBTopologyQueryDAO implements ITopologyQueryDAO {
         return calls;
     }
 
-    private void setParameters(final PreparedStatement ps,
-                               final List<Object> params) throws SQLException {
-        for (int i = 0; i < params.size(); i++) {
-            final Object param = params.get(i);
-            if (param instanceof Long) {
-                ps.setLong(i + 1, (Long) param);
-            } else if (param instanceof String) {
-                ps.setString(i + 1, (String) param);
-            } else {
-                ps.setObject(i + 1, param);
-            }
-        }
-    }
 }
