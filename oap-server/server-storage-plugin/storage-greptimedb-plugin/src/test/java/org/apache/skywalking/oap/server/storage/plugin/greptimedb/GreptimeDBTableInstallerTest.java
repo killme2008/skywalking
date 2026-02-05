@@ -68,8 +68,8 @@ class GreptimeDBTableInstallerTest {
         assertTrue(ddl.contains("`time_bucket` BIGINT"), "Should include time_bucket");
         assertTrue(ddl.contains("`summation` BIGINT"), "Should include summation");
         assertTrue(ddl.contains("`greptime_ts` TIMESTAMP TIME INDEX"), "Should include TIME INDEX");
-        assertTrue(ddl.contains("PRIMARY KEY (`service_id`, `entity_id`)"),
-            "Should have service_id and entity_id as PRIMARY KEY");
+        assertTrue(ddl.contains("PRIMARY KEY (`entity_id`)"),
+            "Should have entity_id as PRIMARY KEY");
         assertTrue(ddl.contains("'merge_mode' = 'last_row'"), "Metrics should use merge_mode");
         assertTrue(ddl.contains("'ttl' = '7d'"), "Should have metrics TTL");
         assertFalse(ddl.contains("append_mode"), "Metrics should not use append_mode");

@@ -75,7 +75,10 @@ public class GreptimeDBAggregationQueryDAO implements IAggregationQueryDAO {
                 if (attr.isEquals()) {
                     sql.append(" and ").append(attr.getKey()).append(" = ?");
                 } else {
-                    sql.append(" and ").append(attr.getKey()).append(" != ?");
+                    // NULL-safe not-equals: NULL != 'value' evaluates to NULL in SQL,
+                    // so rows with NULL attr would be excluded. Use IS NULL OR != instead.
+                    sql.append(" and (").append(attr.getKey()).append(" IS NULL OR ")
+                       .append(attr.getKey()).append(" != ?)");
                 }
                 params.add(attr.getValue());
             }
