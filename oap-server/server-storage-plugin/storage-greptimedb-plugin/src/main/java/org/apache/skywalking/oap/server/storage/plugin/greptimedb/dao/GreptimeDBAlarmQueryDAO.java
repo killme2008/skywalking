@@ -18,7 +18,6 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
-import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 import java.io.IOException;
 import java.sql.Connection;
@@ -99,8 +98,10 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
                         .storage2Entity(new GreptimeDBConverter.ToEntity(map));
                     final AlarmMessage alarmMessage = buildAlarmMessage(alarmRecord);
                     if (!CollectionUtils.isEmpty(alarmRecord.getTagsRawData())) {
-                        parseDataBinaryBase64(
-                            new String(alarmRecord.getTagsRawData(), Charsets.UTF_8),
+                        // GreptimeDB stores BINARY columns directly (not Base64-encoded),
+                        // so use parseDataBinary instead of parseDataBinaryBase64.
+                        parseDataBinary(
+                            alarmRecord.getTagsRawData(),
                             alarmMessage.getTags()
                         );
                     }

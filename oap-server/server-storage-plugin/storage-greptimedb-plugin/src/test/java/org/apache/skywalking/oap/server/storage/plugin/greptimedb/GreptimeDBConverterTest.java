@@ -219,10 +219,10 @@ class GreptimeDBConverterTest {
     }
 
     @Test
-    void selectPrimaryKeyColumnsShouldReturnServiceIdAndEntityIdForMetrics() {
+    void selectPrimaryKeyColumnsShouldReturnEntityIdForMetrics() {
         final Model model = TestModels.sampleMetricsModel();
         final List<String> pk = GreptimeDBConverter.selectPrimaryKeyColumns(model);
-        assertEquals(Arrays.asList("service_id", "entity_id"), pk);
+        assertEquals(Collections.singletonList("entity_id"), pk);
     }
 
     @Test
@@ -233,23 +233,23 @@ class GreptimeDBConverterTest {
     }
 
     @Test
-    void selectPrimaryKeyColumnsShouldFallbackToFirstStringForMetricsWithoutServiceId() {
+    void selectPrimaryKeyColumnsShouldUseIdForMetricsWithoutEntityId() {
         final List<ModelColumn> columns = new ArrayList<>();
         columns.add(TestModels.col("custom_key", String.class));
         columns.add(TestModels.col("value", long.class, true, 0));
         final Model model = TestModels.metricsModel("custom_metric", DownSampling.Minute, columns);
         final List<String> pk = GreptimeDBConverter.selectPrimaryKeyColumns(model);
-        assertEquals(Collections.singletonList("custom_key"), pk);
+        assertEquals(Collections.singletonList("id"), pk);
     }
 
     @Test
-    void selectPrimaryKeyColumnsShouldSkipHighCardinalityColumnsInFallback() {
+    void selectPrimaryKeyColumnsShouldUseIdEvenWithHighCardinalityColumns() {
         final List<ModelColumn> columns = new ArrayList<>();
         columns.add(TestModels.col("trace_id", String.class));
         columns.add(TestModels.col("real_key", String.class));
         final Model model = TestModels.metricsModel("odd_metric", DownSampling.Minute, columns);
         final List<String> pk = GreptimeDBConverter.selectPrimaryKeyColumns(model);
-        assertEquals(Collections.singletonList("real_key"), pk);
+        assertEquals(Collections.singletonList("id"), pk);
     }
 
     // ---- isHighCardinalityColumn ----
@@ -371,15 +371,17 @@ class GreptimeDBConverterTest {
     }
 
     @Test
-    void toEntityGetBytesShouldDecodeBase64String() {
+    void toEntityGetBytesShouldReturnUtf8BytesForString() {
         final Map<String, Object> map = new HashMap<>();
-        map.put("data_binary", "AQID"); // Base64 for [1,2,3]
+        // GreptimeDB stores BINARY columns directly (not Base64-encoded),
+        // so getBytes() returns raw UTF-8 bytes of the string.
+        map.put("data_binary", "abc");
         final GreptimeDBConverter.ToEntity entity = new GreptimeDBConverter.ToEntity(map);
         final byte[] bytes = entity.getBytes("data_binary");
         assertEquals(3, bytes.length);
-        assertEquals(1, bytes[0]);
-        assertEquals(2, bytes[1]);
-        assertEquals(3, bytes[2]);
+        assertEquals('a', bytes[0]);
+        assertEquals('b', bytes[1]);
+        assertEquals('c', bytes[2]);
     }
 
     // ---- mapToSqlType / mapDataType for enum types ----

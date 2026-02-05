@@ -196,21 +196,14 @@ public final class GreptimeDBConverter {
         if (model.isMetric()) {
             for (final ModelColumn col : model.getColumns()) {
                 final String name = col.getColumnName().getStorageName();
-                if (name.equals("service_id") || name.equals("entity_id")) {
+                if (name.equals("entity_id")) {
                     pkColumns.add(name);
-                }
-                if (pkColumns.size() >= 2) {
                     break;
                 }
             }
             if (pkColumns.isEmpty()) {
-                for (final ModelColumn col : model.getColumns()) {
-                    if (String.class.equals(col.getType()) && !col.isStorageOnly()
-                        && !isHighCardinalityColumn(col.getColumnName().getStorageName())) {
-                        pkColumns.add(col.getColumnName().getStorageName());
-                        break;
-                    }
-                }
+                // Use synthetic id to keep metric dimensions unique per time bucket.
+                pkColumns.add("id");
             }
         } else if (model.isRecord()) {
             for (final ModelColumn col : model.getColumns()) {
