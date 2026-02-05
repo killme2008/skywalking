@@ -182,6 +182,8 @@ catalog:
                 path: "/en/setup/backend/storages/postgresql"
               - name: "Elasticsearch & OpenSearch"
                 path: "/en/setup/backend/storages/elasticsearch"
+              - name: "GreptimeDB"
+                path: "/en/setup/backend/storages/greptimedb"
           - name: "Setup External Communication Channels"
             path: "/en/setup/backend/backend-expose"
           - name: "Kafka Fetcher"

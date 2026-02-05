@@ -36,3 +36,11 @@ through scaling out nodes.
 Elasticsearch and OpenSearch are recommended for production environments, especially for large-scale deployments.
 OpenSearch derived from Elasticsearch 7.10.2 and iterates by its own roadmap. But notice, Elasticsearch cluster resource costs are high,
 due to its high requirement for memory and replication requirement to keep cluster robustness.
+
+## GreptimeDB
+
+- [GreptimeDB](storages/greptimedb.md)
+
+GreptimeDB is an open-source, cloud-native time-series database. The SkyWalking GreptimeDB storage plugin uses a dual-protocol
+architecture: gRPC for high-throughput writes and MySQL protocol (JDBC) for queries. It leverages GreptimeDB's native TTL,
+`merge_mode` for metrics upsert, and `append_mode` for records. Tags are stored as JSON columns to eliminate separate tag tables.

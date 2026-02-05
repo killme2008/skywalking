@@ -70,6 +70,7 @@
 
 #### OAP Server
 
+* Add GreptimeDB as a new storage option. Uses gRPC for high-throughput writes and MySQL protocol (JDBC) for queries. Supports all 36 DAO interfaces with native TTL, JSON tag columns, and FULLTEXT log search.
 * KubernetesCoordinator: make self instance return real pod IP address instead of `127.0.0.1`.
 * Enhance the alarm kernel with recovered status notification capability
 * Fix BrowserWebVitalsPerfData `clsTime` to `cls` and make it double type.
