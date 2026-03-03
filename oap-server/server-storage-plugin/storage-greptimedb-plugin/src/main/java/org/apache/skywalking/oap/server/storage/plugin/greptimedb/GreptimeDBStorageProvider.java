@@ -93,8 +93,8 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDB
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBStorageDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTagAutoCompleteQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTopologyQueryDAO;
-import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTraceQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTTLStatusQuery;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTraceQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBUIMenuManagementDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBUITemplateManagementDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBZipkinQueryDAO;

@@ -38,6 +38,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStor
 import static java.util.Comparator.comparing;
 import static java.util.Objects.nonNull;
 import static java.util.stream.Collectors.toList;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
@@ -63,10 +64,7 @@ public class GreptimeDBBrowserLogQueryDAO implements IBrowserLogQueryDAO {
             final long startSecondTB = duration.getStartTimeBucketInSec();
             final long endSecondTB = duration.getEndTimeBucketInSec();
             if (startSecondTB != 0 && endSecondTB != 0) {
-                sql.append(" and ").append(BrowserErrorLogRecord.TIME_BUCKET).append(" >= ?");
-                params.add(startSecondTB);
-                sql.append(" and ").append(BrowserErrorLogRecord.TIME_BUCKET).append(" <= ?");
-                params.add(endSecondTB);
+                appendTimestampCondition(sql, params, startSecondTB, endSecondTB);
             }
         }
         if (StringUtil.isNotEmpty(serviceId)) {

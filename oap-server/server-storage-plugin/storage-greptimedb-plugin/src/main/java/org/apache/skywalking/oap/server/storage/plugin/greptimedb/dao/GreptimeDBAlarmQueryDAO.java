@@ -28,8 +28,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.alarm.AlarmRecord;
 import org.apache.skywalking.oap.server.core.alarm.AlarmRecoveryRecord;
@@ -44,7 +42,9 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStor
 
 import static java.util.Comparator.comparing;
 import static java.util.Objects.nonNull;
+import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
@@ -66,13 +66,10 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
             final long startTB = duration.getStartTimeBucketInSec();
             final long endTB = duration.getEndTimeBucketInSec();
             if (startTB != 0 && endTB != 0) {
-                sql.append(" and ").append(AlarmRecord.TIME_BUCKET).append(" >= ?");
-                params.add(startTB);
-                sql.append(" and ").append(AlarmRecord.TIME_BUCKET).append(" <= ?");
-                params.add(endTB);
+                appendTimestampCondition(sql, params, startTB, endTB);
             }
         }
-        if (Objects.nonNull(scopeId)) {
+        if (nonNull(scopeId)) {
             sql.append(" and ").append(AlarmRecord.SCOPE).append(" = ?");
             params.add(scopeId);
         }
@@ -136,7 +133,7 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
             .collect(toList());
 
         final String placeholders = uuids.stream().map(u -> "?")
-            .collect(Collectors.joining(", "));
+            .collect(joining(", "));
         final String sql = "select * from " + AlarmRecoveryRecord.INDEX_NAME
             + " where " + AlarmRecoveryRecord.UUID + " in (" + placeholders + ")";
 

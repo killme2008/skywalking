@@ -23,6 +23,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,7 +31,6 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.metrics.DataTable;
-import org.apache.skywalking.oap.server.core.analysis.metrics.Metrics;
 import org.apache.skywalking.oap.server.core.query.PointOfTime;
 import org.apache.skywalking.oap.server.core.query.input.Duration;
 import org.apache.skywalking.oap.server.core.query.input.MetricsCondition;
@@ -42,6 +42,9 @@ import org.apache.skywalking.oap.server.core.storage.annotation.ValueColumnMetad
 import org.apache.skywalking.oap.server.core.storage.query.IMetricsQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
+
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.GREPTIME_TS;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
 
 @RequiredArgsConstructor
 public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
@@ -151,13 +154,15 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
         final Map<String, DataTable> idMap = new HashMap<>();
 
         final String sql = "select `id`, " + valueColumnName + " from " + tableName
-            + " where " + Metrics.TIME_BUCKET + " >= ? and " + Metrics.TIME_BUCKET + " <= ?"
+            + " where " + GREPTIME_TS + " >= ? and " + GREPTIME_TS + " <= ?"
             + " limit " + METRICS_VALUES_WITHOUT_ENTITY_LIMIT;
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setLong(1, duration.getStartTimeBucket());
-            ps.setLong(2, duration.getEndTimeBucket());
+            final Timestamp startTs = toTimestamp(duration.getStartTimeBucket());
+            final Timestamp endTs = toTimestamp(duration.getEndTimeBucket());
+            ps.setTimestamp(1, startTs);
+            ps.setTimestamp(2, endTs);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     final String id = rs.getString("id");

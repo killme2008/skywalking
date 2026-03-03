@@ -25,6 +25,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.IDManager;
 import org.apache.skywalking.oap.server.core.analysis.manual.log.LogRecord;
@@ -50,9 +51,9 @@ import static org.apache.skywalking.oap.server.core.analysis.manual.log.Abstract
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TAGS;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TAGS_RAW_DATA;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TIMESTAMP;
-import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TIME_BUCKET;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_ID;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_SEGMENT_ID;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
@@ -82,10 +83,7 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
             final long startSecondTB = duration.getStartTimeBucketInSec();
             final long endSecondTB = duration.getEndTimeBucketInSec();
             if (startSecondTB != 0 && endSecondTB != 0) {
-                sql.append(" and ").append(TIME_BUCKET).append(" >= ?");
-                params.add(startSecondTB);
-                sql.append(" and ").append(TIME_BUCKET).append(" <= ?");
-                params.add(endSecondTB);
+                appendTimestampCondition(sql, params, startSecondTB, endSecondTB);
             }
         }
         if (StringUtil.isNotEmpty(serviceId)) {
@@ -160,7 +158,7 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
             logs.stream()
                 .skip(from)
                 .limit(limit)
-                .collect(java.util.stream.Collectors.toList())
+                .collect(Collectors.toList())
         );
     }
 
