@@ -69,6 +69,18 @@ Open http://localhost:8080 in your browser. After generating some traffic (Step 
 
 It may take 30-60 seconds after the first request for data to appear in the UI.
 
+**Service dashboard** — metrics for both e2e services (Apdex, success rate, response time, load):
+
+![Service Dashboard](docs/screenshot-dashboard.png)
+
+**Distributed trace** — spans across consumer and provider with timeline:
+
+![Trace Detail](docs/screenshot-trace.png)
+
+**Log collection** — application logs collected via SkyWalking agent:
+
+![Log View](docs/screenshot-log.png)
+
 ### Step 5: Query via CLI (Optional)
 
 Query via GraphQL:
@@ -77,7 +89,7 @@ Query via GraphQL:
 # List services
 curl -s http://localhost:12800/graphql -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"query":"{ listServices(duration:{start:\"2025-01-01\",end:\"2030-01-01\",step:DAY}) { services { name } } }"}'
+  -d '{"query":"{ listServices(layer:\"GENERAL\") { name } }"}'
 ```
 
 Query GreptimeDB directly via MySQL protocol:
@@ -95,11 +107,11 @@ docker compose -f docker-compose-greptimedb-demo.yml down -v
 
 ## Unit Tests
 
-Run the plugin unit tests (80 tests across 4 test classes):
+Run the plugin unit tests (94 tests across 5 test classes):
 
 ```bash
 ./mvnw test -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
-  -Dtest="GreptimeDBConverterTest,GreptimeDBTableInstallerTest,SchemaRegistryTest,GreptimeDBTableBuilderTest" \
+  -Dtest="GreptimeDBConverterTest,GreptimeDBTableInstallerTest,SchemaRegistryTest,GreptimeDBTableBuilderTest,GreptimeDBQueryHelperTest" \
   -Dsurefire.failIfNoSpecifiedTests=false
 ```
 
