@@ -218,6 +218,24 @@ storage:
     metadataQueryMaxSize: ${SW_STORAGE_MYSQL_QUERY_MAX_SIZE:5000}
     maxSizeOfBatchSql: ${SW_STORAGE_MAX_SIZE_OF_BATCH_SQL:2000}
     asyncBatchPersistentPoolSize: ${SW_STORAGE_ASYNC_BATCH_PERSISTENT_POOL_SIZE:4}
+  greptimedb:
+    # GreptimeDB gRPC write endpoint(s), comma-separated for multiple endpoints.
+    grpcEndpoints: ${SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS:127.0.0.1:4001}
+    # GreptimeDB MySQL-compatible protocol endpoint for JDBC reads and DDL.
+    jdbcHost: ${SW_STORAGE_GREPTIMEDB_JDBC_HOST:127.0.0.1}
+    jdbcPort: ${SW_STORAGE_GREPTIMEDB_JDBC_PORT:4002}
+    database: ${SW_STORAGE_GREPTIMEDB_DATABASE:skywalking}
+    user: ${SW_STORAGE_GREPTIMEDB_USER:""}
+    password: ${SW_STORAGE_GREPTIMEDB_PASSWORD:""}
+    # TTL per data category. Use GreptimeDB duration format (e.g., "7d", "168h").
+    metricsTTL: ${SW_STORAGE_GREPTIMEDB_METRICS_TTL:7d}
+    recordsTTL: ${SW_STORAGE_GREPTIMEDB_RECORDS_TTL:3d}
+    # "0" means no expiry for management data.
+    managementTTL: ${SW_STORAGE_GREPTIMEDB_MANAGEMENT_TTL:"0"}
+    maxBulkSize: ${SW_STORAGE_GREPTIMEDB_MAX_BULK_SIZE:5000}
+    flushInterval: ${SW_STORAGE_GREPTIMEDB_FLUSH_INTERVAL:15}
+    maxJdbcPoolSize: ${SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE:10}
+    metadataQueryMaxSize: ${SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE:5000}
 
 agent-analyzer:
   selector: ${SW_AGENT_ANALYZER:default}
