@@ -34,6 +34,8 @@ import org.apache.skywalking.oap.server.core.storage.profiling.asyncprofiler.IAs
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.addTimestampConditions;
+
 @RequiredArgsConstructor
 public class GreptimeDBAsyncProfilerTaskQueryDAO implements IAsyncProfilerTaskQueryDAO {
     private static final Gson GSON = new Gson();
@@ -53,14 +55,7 @@ public class GreptimeDBAsyncProfilerTaskQueryDAO implements IAsyncProfilerTaskQu
             conditions.add(AsyncProfilerTaskRecord.SERVICE_ID + " = ?");
             params.add(serviceId);
         }
-        if (startTimeBucket != null) {
-            conditions.add(AsyncProfilerTaskRecord.TIME_BUCKET + " >= ?");
-            params.add(startTimeBucket);
-        }
-        if (endTimeBucket != null) {
-            conditions.add(AsyncProfilerTaskRecord.TIME_BUCKET + " <= ?");
-            params.add(endTimeBucket);
-        }
+        addTimestampConditions(conditions, params, startTimeBucket, endTimeBucket);
 
         if (!conditions.isEmpty()) {
             sql.append(" where ");

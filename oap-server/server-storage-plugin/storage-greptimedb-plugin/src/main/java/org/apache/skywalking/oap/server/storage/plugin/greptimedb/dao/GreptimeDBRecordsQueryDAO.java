@@ -35,6 +35,9 @@ import org.apache.skywalking.oap.server.core.storage.query.IRecordsQueryDAO;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+
 @RequiredArgsConstructor
 public class GreptimeDBRecordsQueryDAO implements IRecordsQueryDAO {
     private final GreptimeDBStorageClient client;
@@ -51,10 +54,7 @@ public class GreptimeDBRecordsQueryDAO implements IRecordsQueryDAO {
         sql.append("select * from ").append(tableName);
         sql.append(" where ").append(TopN.ENTITY_ID).append(" = ?");
         params.add(condition.getParentEntity().buildId());
-        sql.append(" and ").append(TopN.TIME_BUCKET).append(" >= ?");
-        params.add(duration.getStartTimeBucketInSec());
-        sql.append(" and ").append(TopN.TIME_BUCKET).append(" <= ?");
-        params.add(duration.getEndTimeBucketInSec());
+        appendTimestampCondition(sql, params, duration.getStartTimeBucketInSec(), duration.getEndTimeBucketInSec());
 
         sql.append(" order by ").append(valueColumnName);
         if (condition.getOrder().equals(Order.DES)) {
@@ -67,16 +67,7 @@ public class GreptimeDBRecordsQueryDAO implements IRecordsQueryDAO {
         final List<Record> results = new ArrayList<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                final Object param = params.get(i);
-                if (param instanceof Long) {
-                    ps.setLong(i + 1, (Long) param);
-                } else if (param instanceof String) {
-                    ps.setString(i + 1, (String) param);
-                } else {
-                    ps.setObject(i + 1, param);
-                }
-            }
+            setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     final Record record = new Record();

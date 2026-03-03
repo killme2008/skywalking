@@ -25,7 +25,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.Layer;
 import org.apache.skywalking.oap.server.core.analysis.record.Event;
@@ -42,6 +41,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStor
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static java.util.Comparator.comparing;
 import static java.util.Objects.isNull;
+import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
@@ -102,7 +102,7 @@ public class GreptimeDBEventQueryDAO implements IEventQueryDAO {
             })
             .filter(clause -> !clause.isEmpty())
             .map(clause -> "(" + clause + ")")
-            .collect(Collectors.joining(" or "));
+            .collect(joining(" or "));
 
         final EventQueryCondition firstCondition = conditionList.get(0);
         final Order queryOrder = isNull(firstCondition.getOrder()) ? Order.DES : firstCondition.getOrder();

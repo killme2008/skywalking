@@ -43,12 +43,12 @@ import org.apache.skywalking.oap.server.core.query.type.TraceState;
 import org.apache.skywalking.oap.server.core.storage.query.ITraceQueryDAO;
 import org.apache.skywalking.oap.server.library.util.BooleanUtils;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
-
-import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -96,10 +96,7 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
             final long startSecondTB = duration.getStartTimeBucketInSec();
             final long endSecondTB = duration.getEndTimeBucketInSec();
             if (startSecondTB != 0 && endSecondTB != 0) {
-                sql.append(" and ").append(SegmentRecord.TIME_BUCKET).append(" >= ?");
-                params.add(startSecondTB);
-                sql.append(" and ").append(SegmentRecord.TIME_BUCKET).append(" <= ?");
-                params.add(endSecondTB);
+                appendTimestampCondition(sql, params, startSecondTB, endSecondTB);
             }
         }
         if (minDuration != 0) {

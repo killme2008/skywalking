@@ -39,6 +39,7 @@ import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
@@ -61,10 +62,8 @@ public class GreptimeDBAggregationQueryDAO implements IAggregationQueryDAO {
         sql.append(" from (select avg(").append(valueColumnName).append(") as result, ");
         sql.append(Metrics.ENTITY_ID);
         sql.append(" from ").append(tableName);
-        sql.append(" where ").append(Metrics.TIME_BUCKET).append(" >= ?");
-        params.add(duration.getStartTimeBucket());
-        sql.append(" and ").append(Metrics.TIME_BUCKET).append(" <= ?");
-        params.add(duration.getEndTimeBucket());
+        sql.append(" where 1=1");
+        appendTimestampCondition(sql, params, duration.getStartTimeBucket(), duration.getEndTimeBucket());
 
         if (additionalConditions != null) {
             for (final KeyValue kv : additionalConditions) {

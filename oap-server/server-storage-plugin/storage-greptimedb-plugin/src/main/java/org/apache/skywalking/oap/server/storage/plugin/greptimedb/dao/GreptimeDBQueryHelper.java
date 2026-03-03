@@ -20,12 +20,29 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class GreptimeDBQueryHelper {
+
+    /**
+     * The GreptimeDB TIME INDEX column name used across all tables.
+     * Queries should filter on this column instead of {@code time_bucket}
+     * to leverage native partition pruning rather than secondary index lookups.
+     */
+    static final String GREPTIME_TS = "greptime_ts";
+
+    /**
+     * Convert a SkyWalking time_bucket value to a JDBC Timestamp for use
+     * in {@code greptime_ts} range predicates.
+     */
+    static Timestamp toTimestamp(final long timeBucket) {
+        return new Timestamp(GreptimeDBConverter.timeBucketToTimestamp(timeBucket));
+    }
 
     static void setParameters(final PreparedStatement ps,
                               final List<Object> params) throws SQLException {
@@ -37,9 +54,39 @@ public final class GreptimeDBQueryHelper {
                 ps.setInt(i + 1, (Integer) param);
             } else if (param instanceof String) {
                 ps.setString(i + 1, (String) param);
+            } else if (param instanceof Timestamp) {
+                ps.setTimestamp(i + 1, (Timestamp) param);
             } else {
                 ps.setObject(i + 1, param);
             }
+        }
+    }
+
+    /**
+     * Append {@code AND greptime_ts >= ? AND greptime_ts <= ?} to a StringBuilder query.
+     * Used by most DAOs that build SQL via StringBuilder.
+     */
+    static void appendTimestampCondition(final StringBuilder sql, final List<Object> params,
+                                         final long startTimeBucket, final long endTimeBucket) {
+        sql.append(" and ").append(GREPTIME_TS).append(" >= ?");
+        params.add(toTimestamp(startTimeBucket));
+        sql.append(" and ").append(GREPTIME_TS).append(" <= ?");
+        params.add(toTimestamp(endTimeBucket));
+    }
+
+    /**
+     * Add {@code greptime_ts >= ?} / {@code greptime_ts <= ?} to a conditions list.
+     * Used by task DAOs that collect conditions before joining them.
+     */
+    static void addTimestampConditions(final List<String> conditions, final List<Object> params,
+                                       final Long startTimeBucket, final Long endTimeBucket) {
+        if (startTimeBucket != null) {
+            conditions.add(GREPTIME_TS + " >= ?");
+            params.add(toTimestamp(startTimeBucket));
+        }
+        if (endTimeBucket != null) {
+            conditions.add(GREPTIME_TS + " <= ?");
+            params.add(toTimestamp(endTimeBucket));
         }
     }
 

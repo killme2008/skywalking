@@ -32,6 +32,8 @@ import org.apache.skywalking.oap.server.core.storage.profiling.trace.IProfileTas
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.addTimestampConditions;
+
 @RequiredArgsConstructor
 public class GreptimeDBProfileTaskQueryDAO implements IProfileTaskQueryDAO {
     private final GreptimeDBStorageClient client;
@@ -53,14 +55,7 @@ public class GreptimeDBProfileTaskQueryDAO implements IProfileTaskQueryDAO {
             conditions.add(ProfileTaskRecord.ENDPOINT_NAME + " = ?");
             params.add(endpointName);
         }
-        if (startTimeBucket != null) {
-            conditions.add(ProfileTaskRecord.TIME_BUCKET + " >= ?");
-            params.add(startTimeBucket);
-        }
-        if (endTimeBucket != null) {
-            conditions.add(ProfileTaskRecord.TIME_BUCKET + " <= ?");
-            params.add(endTimeBucket);
-        }
+        addTimestampConditions(conditions, params, startTimeBucket, endTimeBucket);
 
         if (!conditions.isEmpty()) {
             sql.append(" where ");

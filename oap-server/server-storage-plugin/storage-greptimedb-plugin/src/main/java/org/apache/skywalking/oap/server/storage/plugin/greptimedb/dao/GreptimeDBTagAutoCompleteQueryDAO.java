@@ -37,7 +37,9 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConv
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static java.util.Objects.nonNull;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.GREPTIME_TS;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
 
 @RequiredArgsConstructor
 public class GreptimeDBTagAutoCompleteQueryDAO implements ITagAutoCompleteQueryDAO {
@@ -116,12 +118,12 @@ public class GreptimeDBTagAutoCompleteQueryDAO implements ITagAutoCompleteQueryD
             endTB = TimeBucket.retainToDayLastMin4MinuteBucket(duration.getEndTimeBucketInMin());
         }
         if (startTB > 0) {
-            sql.append(" and ").append(TagAutocompleteData.TIME_BUCKET).append(" >= ?");
-            params.add(startTB);
+            sql.append(" and ").append(GREPTIME_TS).append(" >= ?");
+            params.add(toTimestamp(startTB));
         }
         if (endTB > 0) {
-            sql.append(" and ").append(TagAutocompleteData.TIME_BUCKET).append(" <= ?");
-            params.add(endTB);
+            sql.append(" and ").append(GREPTIME_TS).append(" <= ?");
+            params.add(toTimestamp(endTB));
         }
     }
 

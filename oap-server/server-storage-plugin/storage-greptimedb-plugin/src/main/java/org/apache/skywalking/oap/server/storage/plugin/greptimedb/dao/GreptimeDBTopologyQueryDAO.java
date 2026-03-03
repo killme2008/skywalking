@@ -42,6 +42,7 @@ import org.apache.skywalking.oap.server.core.storage.query.ITopologyQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
@@ -157,10 +158,8 @@ public class GreptimeDBTopologyQueryDAO implements ITopologyQueryDAO {
         sql.append("select ").append(Metrics.ENTITY_ID).append(", ")
            .append(ServiceRelationServerSideMetrics.COMPONENT_IDS)
            .append(" from ").append(table)
-           .append(" where ").append(Metrics.TIME_BUCKET).append(" >= ?")
-           .append(" and ").append(Metrics.TIME_BUCKET).append(" <= ?");
-        params.add(duration.getStartTimeBucket());
-        params.add(duration.getEndTimeBucket());
+           .append(" where 1=1");
+        appendTimestampCondition(sql, params, duration.getStartTimeBucket(), duration.getEndTimeBucket());
 
         if (!serviceIds.isEmpty()) {
             sql.append(" and (");
@@ -212,10 +211,8 @@ public class GreptimeDBTopologyQueryDAO implements ITopologyQueryDAO {
 
         sql.append("select ").append(Metrics.ENTITY_ID)
            .append(" from ").append(table)
-           .append(" where ").append(Metrics.TIME_BUCKET).append(" >= ?")
-           .append(" and ").append(Metrics.TIME_BUCKET).append(" <= ?");
-        params.add(duration.getStartTimeBucket());
-        params.add(duration.getEndTimeBucket());
+           .append(" where 1=1");
+        appendTimestampCondition(sql, params, duration.getStartTimeBucket(), duration.getEndTimeBucket());
 
         sql.append(" and ((").append(sourceCName).append(" = ? and ").append(destCName).append(" = ?)")
            .append(" or (").append(sourceCName).append(" = ? and ").append(destCName).append(" = ?))");
@@ -255,11 +252,9 @@ public class GreptimeDBTopologyQueryDAO implements ITopologyQueryDAO {
 
         sql.append("select ").append(Metrics.ENTITY_ID)
            .append(" from ").append(table)
-           .append(" where ").append(Metrics.TIME_BUCKET).append(" >= ?")
-           .append(" and ").append(Metrics.TIME_BUCKET).append(" <= ?")
-           .append(" and ").append(isSourceId ? sourceCName : destCName).append(" = ?");
-        params.add(duration.getStartTimeBucket());
-        params.add(duration.getEndTimeBucket());
+           .append(" where 1=1");
+        appendTimestampCondition(sql, params, duration.getStartTimeBucket(), duration.getEndTimeBucket());
+        sql.append(" and ").append(isSourceId ? sourceCName : destCName).append(" = ?");
         params.add(id);
 
         sql.append(" group by ").append(Metrics.ENTITY_ID);
@@ -295,11 +290,9 @@ public class GreptimeDBTopologyQueryDAO implements ITopologyQueryDAO {
         sql.append("select ").append(Metrics.ENTITY_ID).append(", ")
            .append(ProcessRelationServerSideMetrics.COMPONENT_ID)
            .append(" from ").append(table)
-           .append(" where ").append(Metrics.TIME_BUCKET).append(" >= ?")
-           .append(" and ").append(Metrics.TIME_BUCKET).append(" <= ?")
-           .append(" and ").append(ProcessRelationServerSideMetrics.SERVICE_INSTANCE_ID).append(" = ?");
-        params.add(duration.getStartTimeBucket());
-        params.add(duration.getEndTimeBucket());
+           .append(" where 1=1");
+        appendTimestampCondition(sql, params, duration.getStartTimeBucket(), duration.getEndTimeBucket());
+        sql.append(" and ").append(ProcessRelationServerSideMetrics.SERVICE_INSTANCE_ID).append(" = ?");
         params.add(instanceId);
 
         sql.append(" group by ").append(Metrics.ENTITY_ID)
