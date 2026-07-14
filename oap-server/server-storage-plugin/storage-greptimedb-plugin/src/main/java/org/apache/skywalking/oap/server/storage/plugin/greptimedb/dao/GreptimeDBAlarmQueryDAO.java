@@ -44,7 +44,6 @@ import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
-import static java.util.Comparator.comparing;
 import static java.util.Objects.nonNull;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
@@ -116,9 +115,7 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
         }
 
         final Alarms alarms = new Alarms(
-            alarmMsgs.stream()
-                     .sorted(comparing(AlarmMessage::getStartTime).reversed())
-                     .skip(from)
+            alarmMsgs.stream()                     .skip(from)
                      .limit(limit)
                      .collect(toList())
         );
@@ -212,9 +209,7 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
         }
 
         final Alarms alarms = new Alarms(
-            alarmMsgs.stream()
-                     .sorted(comparing(AlarmMessage::getStartTime).reversed())
-                     .skip(from)
+            alarmMsgs.stream()                     .skip(from)
                      .limit(limit)
                      .collect(toList())
         );

@@ -24,7 +24,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -81,10 +80,8 @@ public class GreptimeDBSpanAttachedEventQueryDAO implements ISpanAttachedEventQu
         } catch (SQLException e) {
             throw new IOException("Failed to query SW span attached events", e);
         }
-        return results.stream()
-            .sorted(Comparator.comparing(SWSpanAttachedEventRecord::getStartTimeSecond)
-                               .thenComparing(SWSpanAttachedEventRecord::getStartTimeNanos))
-            .collect(Collectors.toList());
+        // Rows already arrive ordered by (start_time_second, start_time_nanos) from SQL.
+        return results;
     }
 
     @Override
@@ -129,9 +126,7 @@ public class GreptimeDBSpanAttachedEventQueryDAO implements ISpanAttachedEventQu
         } catch (SQLException e) {
             throw new IOException("Failed to query ZK span attached events", e);
         }
-        return results.stream()
-            .sorted(Comparator.comparing(SpanAttachedEventRecord::getStartTimeSecond)
-                               .thenComparing(SpanAttachedEventRecord::getStartTimeNanos))
-            .collect(Collectors.toList());
+        // Rows already arrive ordered by (start_time_second, start_time_nanos) from SQL.
+        return results;
     }
 }

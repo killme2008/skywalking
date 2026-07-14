@@ -39,7 +39,6 @@ import org.apache.skywalking.oap.server.core.storage.query.IEventQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
-import static java.util.Comparator.comparing;
 import static java.util.Objects.isNull;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
@@ -136,12 +135,9 @@ public class GreptimeDBEventQueryDAO implements IEventQueryDAO {
             throw new IOException("Failed to query events", e);
         }
 
-        final var comparator = Order.DES.equals(queryOrder) ?
-            comparing(org.apache.skywalking.oap.server.core.query.type.event.Event::getTimestamp).reversed() :
-            comparing(org.apache.skywalking.oap.server.core.query.type.event.Event::getTimestamp);
+        // Rows already arrive ordered by timestamp from SQL; no in-Java re-sort.
         return new Events(
             events.stream()
-                  .sorted(comparator)
                   .skip(page.getFrom())
                   .limit(page.getLimit())
                   .collect(toList())

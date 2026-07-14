@@ -35,7 +35,6 @@ import org.apache.skywalking.oap.server.core.storage.query.IBrowserLogQueryDAO;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
-import static java.util.Comparator.comparing;
 import static java.util.Objects.nonNull;
 import static java.util.stream.Collectors.toList;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
@@ -105,7 +104,6 @@ public class GreptimeDBBrowserLogQueryDAO implements IBrowserLogQueryDAO {
 
         return new BrowserErrorLogs(
             logs.stream()
-                .sorted(comparing(BrowserErrorLog::getTime).reversed())
                 .skip(from)
                 .limit(limit)
                 .collect(toList())
