@@ -353,8 +353,17 @@ public final class GreptimeDBConverter {
 
         @Override
         public void accept(final String fieldName, final List<String> fieldValue) {
-            // Convert tag list to JSON string for GreptimeDB JSON column
+            // Keep a JSON form for any table that still uses a JSON tags column.
             source.put(fieldName, tagsToJson(fieldValue));
+            // Also split "key=value" entries so per-key searchable tag columns pick them up by key.
+            if (fieldValue != null) {
+                for (final String tag : fieldValue) {
+                    final int idx = tag.indexOf('=');
+                    if (idx > 0) {
+                        source.put(tag.substring(0, idx), tag.substring(idx + 1));
+                    }
+                }
+            }
         }
 
         @Override

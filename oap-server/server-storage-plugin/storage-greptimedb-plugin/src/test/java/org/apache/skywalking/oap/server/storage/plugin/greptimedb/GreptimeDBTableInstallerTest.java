@@ -19,7 +19,9 @@
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
@@ -38,9 +40,8 @@ class GreptimeDBTableInstallerTest {
 
     @Mock
     private GreptimeDBStorageClient client;
-    @Mock
-    private ModuleManager moduleManager;
 
+    private ModuleManager moduleManager;
     private GreptimeDBStorageConfig config;
     private GreptimeDBTableInstaller installer;
 
@@ -49,6 +50,7 @@ class GreptimeDBTableInstallerTest {
         config = new GreptimeDBStorageConfig();
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
+        moduleManager = TestModels.mockModuleManager(Collections.emptySet(), "", "");
         installer = new GreptimeDBTableInstaller(client, moduleManager, config);
     }
 
@@ -115,10 +117,27 @@ class GreptimeDBTableInstallerTest {
     }
 
     @Test
-    void buildDDLForRecordShouldMapTagsAsJson() {
+    void buildDDLForRecordShouldNotStoreTagsAsJsonWhenNoSearchableTags() {
+        // segment expands searchable tags into per-key columns; with an empty whitelist there is no
+        // tags column at all (the JSON blob is gone).
         final Model model = TestModels.sampleRecordModel();
         final String ddl = installer.buildCreateTableDDL(model);
-        assertTrue(ddl.contains("`tags` JSON"), "List columns should map to JSON");
+        assertFalse(ddl.contains("`tags`"), "Record tags must not be stored as a JSON column");
+    }
+
+    @Test
+    void buildDDLForRecordShouldExpandSearchableTagsToColumns() {
+        final ModuleManager mm = TestModels.mockModuleManager(Set.of("http.method", "db.type"), "", "");
+        final GreptimeDBTableInstaller taggedInstaller = new GreptimeDBTableInstaller(client, mm, config);
+        final String ddl = taggedInstaller.buildCreateTableDDL(TestModels.sampleRecordModel());
+
+        // http.method is in the default primaryKeyTags -> PRIMARY KEY tag (no extra index).
+        assertTrue(ddl.contains("`http.method` STRING"), "searchable PK tag becomes a column");
+        assertTrue(ddl.contains("PRIMARY KEY (`service_id`, `http.method`)"),
+            "primaryKeyTags join the PRIMARY KEY after the model's own PK");
+        // db.type is not a primaryKeyTag -> inverted-indexed field column.
+        assertTrue(ddl.contains("`db.type` STRING INVERTED INDEX"),
+            "non-PK searchable tag becomes an inverted-indexed field");
     }
 
     @Test

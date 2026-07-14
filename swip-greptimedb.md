@@ -82,24 +82,20 @@ Example: `TraceQueryDAO.queryByTraceId()` does `WHERE trace_id = ?`. A bloom fil
 
 `LogQueryDAO` wires `keywordsOfContent` / `excludingKeywordsOfContent` to `matches_term(lower(content), lower(?))` over this FULLTEXT index: exact word-level matching, made case-insensitive by applying `lower()` to both the column and the term (the index's `case_sensitive` option only affects the `matches()` query path, not `matches_term`). `supportQueryLogsByKeywords()` returns true.
 
-**Tags as JSON column** — the JDBC plugin creates separate tag tables (`segment_tag`, `log_tag`, `alarm_record_tag`) and uses INNER JOIN for tag filtering. We store tags as a JSON column on the main table and use GreptimeDB's `json_path_match()` function:
+**Searchable tags as indexed columns** — the JDBC plugin creates separate tag tables (`segment_tag`, `log_tag`, `alarm_record_tag`) and uses INNER JOIN for tag filtering. Instead of a JSON blob (which has no index, so `json_path_match` degrades to a row-by-row scan), each *searchable* tag key (from the `searchableTracesTags` / `searchableLogsTags` / `searchableAlarmTags` whitelists) is promoted to its own indexed column, so tag filtering becomes `` WHERE `http.method` = ? `` and is pushed down:
 
 ```sql
 -- Find traces where http.method = GET
 SELECT * FROM segment
 WHERE greptime_ts >= ? AND greptime_ts <= ?
   AND service_id = ?
-  AND json_path_match(tags, '$["http.method"] == "GET"')
+  AND `http.method` = 'GET'
 ```
 
-This eliminates 3 extra tables and the JOIN overhead in the initial implementation. The tradeoff is that a JSON column has no index — `json_path_match` is evaluated row-by-row within the pruned partition, so a tag-only filter over a large record table degrades to a scan.
-
-**Planned: searchable tags as indexed columns.** To remove that scan, each *searchable* tag key (from the `searchableTracesTags` / `searchableLogsTags` / `searchableAlarmTags` whitelists) is promoted to its own column, so tag filtering becomes `` WHERE `http.method` = ? `` and is pushed down:
-
 - The column name is the tag key verbatim — GreptimeDB accepts dotted, back-quoted identifiers, so no `.`→`_` mapping and no collision handling is needed.
-- A new `primaryKeyTags` config (a subset of the whitelist, default `http.method,status_code`) marks the high-frequency keys that join the PRIMARY KEY (low cardinality → row-group pruning). The remaining whitelist tags become plain field columns with an INVERTED INDEX added at table-creation time.
+- The `primaryKeyTags` config (a subset of the whitelist, default `http.method,status_code`) marks the high-frequency keys that join the PRIMARY KEY (low cardinality → row-group pruning). The remaining whitelist tags become field columns with an INVERTED INDEX added at table-creation time.
 - The whitelist is watched at runtime. Keys added after table creation are appended via `ALTER TABLE ADD COLUMN` as plain fields — `ALTER` cannot attach an INVERTED INDEX, so such keys are queryable but unindexed until the table is rebuilt.
-- Writes split each `k=v` in `tags`; whitelist keys populate their columns, everything else stays in `dataBinary` (full payload, unsearchable). Reads validate the tag key against the whitelist first, mirroring the JDBC/ES plugins.
+- Writes split each `k=v` in `tags`; whitelist keys populate their columns, everything else stays in `dataBinary` (full payload, unsearchable). Reads validate the tag key against the whitelist first (a non-searchable key forces an empty result), mirroring the JDBC/ES plugins.
 - Scope: trace (`segment`), log, alarm. Zipkin (annotation → `query` FULLTEXT column) and tag auto-completion (its own `*_tag_autocomplete` table) are unaffected.
 
 ### DAO implementations

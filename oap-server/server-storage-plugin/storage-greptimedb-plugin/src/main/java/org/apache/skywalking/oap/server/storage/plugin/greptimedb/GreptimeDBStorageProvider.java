@@ -105,6 +105,7 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
     private GreptimeDBStorageClient client;
     private GreptimeDBTableInstaller tableInstaller;
     private SchemaRegistry schemaRegistry;
+    private GreptimeDBSearchableTagColumns tagColumns;
 
     @Override
     public String name() {
@@ -134,7 +135,8 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
     @Override
     public void prepare() throws ServiceNotProvidedException, ModuleStartException {
         this.client = new GreptimeDBStorageClient(config);
-        this.schemaRegistry = new SchemaRegistry();
+        this.tagColumns = new GreptimeDBSearchableTagColumns(getManager(), config);
+        this.schemaRegistry = new SchemaRegistry(tagColumns);
         this.tableInstaller = new GreptimeDBTableInstaller(client, getManager(), config);
 
         // StorageBuilderFactory: use default
@@ -157,13 +159,13 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
         // Query DAOs
         this.registerServiceImplementation(ITopologyQueryDAO.class, new GreptimeDBTopologyQueryDAO(client));
         this.registerServiceImplementation(IMetricsQueryDAO.class, new GreptimeDBMetricsQueryDAO(client));
-        this.registerServiceImplementation(ITraceQueryDAO.class, new GreptimeDBTraceQueryDAO(client));
+        this.registerServiceImplementation(ITraceQueryDAO.class, new GreptimeDBTraceQueryDAO(client, tagColumns));
         this.registerServiceImplementation(IMetadataQueryDAO.class,
             new GreptimeDBMetadataQueryDAO(client, config.getMetadataQueryMaxSize()));
         this.registerServiceImplementation(IAggregationQueryDAO.class, new GreptimeDBAggregationQueryDAO(client));
-        this.registerServiceImplementation(IAlarmQueryDAO.class, new GreptimeDBAlarmQueryDAO(client));
+        this.registerServiceImplementation(IAlarmQueryDAO.class, new GreptimeDBAlarmQueryDAO(client, tagColumns));
         this.registerServiceImplementation(IRecordsQueryDAO.class, new GreptimeDBRecordsQueryDAO(client));
-        this.registerServiceImplementation(ILogQueryDAO.class, new GreptimeDBLogQueryDAO(client));
+        this.registerServiceImplementation(ILogQueryDAO.class, new GreptimeDBLogQueryDAO(client, tagColumns));
         this.registerServiceImplementation(IBrowserLogQueryDAO.class, new GreptimeDBBrowserLogQueryDAO(client));
         this.registerServiceImplementation(IEventQueryDAO.class, new GreptimeDBEventQueryDAO(client));
         this.registerServiceImplementation(ISpanAttachedEventQueryDAO.class, new GreptimeDBSpanAttachedEventQueryDAO(client));

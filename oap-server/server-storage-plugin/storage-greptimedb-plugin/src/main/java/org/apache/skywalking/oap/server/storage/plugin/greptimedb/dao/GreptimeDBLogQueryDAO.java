@@ -25,6 +25,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.IDManager;
@@ -40,6 +41,7 @@ import org.apache.skywalking.oap.server.core.storage.query.ILogQueryDAO;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBSearchableTagColumns;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static java.util.Objects.nonNull;
@@ -49,18 +51,17 @@ import static org.apache.skywalking.oap.server.core.analysis.manual.log.Abstract
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.SERVICE_ID;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.SERVICE_INSTANCE_ID;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.SPAN_ID;
-import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TAGS;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TAGS_RAW_DATA;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TIMESTAMP;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_ID;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_SEGMENT_ID;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
-import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
 public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
     private final GreptimeDBStorageClient client;
+    private final GreptimeDBSearchableTagColumns tagColumns;
 
     @Override
     public boolean supportQueryLogsByKeywords() {
@@ -120,11 +121,17 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
             }
         }
 
-        // Pass the JSONPath expression as a PreparedStatement parameter to prevent injection.
+        // Searchable tags are per-key indexed columns; filter with an equality predicate that pushes down.
         if (CollectionUtils.isNotEmpty(tags)) {
+            final Set<String> searchable = tagColumns.searchableKeys(LogRecord.INDEX_NAME);
             for (final Tag tag : tags) {
-                sql.append(" and json_path_match(").append(TAGS).append(", ?)");
-                params.add(buildJsonPathMatchExpr(tag.getKey(), tag.getValue()));
+                if (!searchable.contains(tag.getKey())) {
+                    // Non-searchable tag has no column; force an empty result (mirrors JDBC/ES).
+                    sql.append(" and 1=0");
+                    continue;
+                }
+                sql.append(" and ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" = ?");
+                params.add(tag.getValue());
             }
         }
 

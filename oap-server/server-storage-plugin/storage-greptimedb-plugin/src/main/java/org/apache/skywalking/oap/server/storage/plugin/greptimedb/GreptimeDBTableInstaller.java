@@ -23,11 +23,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.storage.StorageException;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBSearchableTagColumns.TagColumn;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.model.ModelInstaller;
@@ -37,12 +39,14 @@ import org.apache.skywalking.oap.server.library.module.ModuleManager;
 @Slf4j
 public class GreptimeDBTableInstaller extends ModelInstaller {
     private final GreptimeDBStorageConfig config;
+    private final GreptimeDBSearchableTagColumns tagColumns;
 
     public GreptimeDBTableInstaller(final GreptimeDBStorageClient client,
                                     final ModuleManager moduleManager,
                                     final GreptimeDBStorageConfig config) {
         super(client, moduleManager);
         this.config = config;
+        this.tagColumns = new GreptimeDBSearchableTagColumns(moduleManager, config);
     }
 
     @Override
@@ -60,26 +64,46 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
             // compare types). A model that gained @Columns since the table was created shows up as
             // missing columns here; how we reconcile depends on the caller's schema-change intent.
             final Set<String> existing = describeColumns(conn, tableName);
+            final boolean expandTags = tagColumns.expandsTags(model);
             final List<String> missing = new ArrayList<>();
             for (final ModelColumn col : model.getColumns()) {
                 final String colName = col.getColumnName().getStorageName();
+                if (expandTags && isTagsColumn(colName)) {
+                    // The JSON tags column is intentionally not created; searchable tags are per-key columns.
+                    continue;
+                }
                 if (!existing.contains(colName)) {
                     missing.add(colName);
+                }
+            }
+
+            // Searchable tag columns whitelisted after the table was created: ALTER can only add them as
+            // plain fields (no INVERTED INDEX / PRIMARY KEY), so they are queryable but unindexed until
+            // the table is rebuilt. Tags whitelisted before creation keep their PK/index from createTable.
+            final List<String> missingTags = new ArrayList<>();
+            if (expandTags) {
+                for (final TagColumn tag : tagColumns.resolve(model)) {
+                    if (!existing.contains(tag.getKey())) {
+                        missingTags.add(tag.getKey());
+                    }
                 }
             }
 
             // The table is present regardless, so keep allExist=true: createTable is
             // CREATE TABLE IF NOT EXISTS and would be a no-op. Column reconciliation happens here.
             info.setAllExist(true);
-            if (missing.isEmpty()) {
+            final List<String> allMissing = new ArrayList<>(missing);
+            allMissing.addAll(missingTags);
+            if (allMissing.isEmpty()) {
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.EXISTING_MATCHED, null);
             } else if (opt.isWithSchemaChange()) {
                 addMissingColumns(conn, model, tableName, missing);
+                addMissingTagColumns(conn, tableName, missingTags);
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.UPDATED,
-                    "added columns: " + String.join(", ", missing));
+                    "added columns: " + String.join(", ", allMissing));
             } else {
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.SKIPPED_SHAPE_MISMATCH,
-                    "missing columns: " + String.join(", ", missing));
+                    "missing columns: " + String.join(", ", allMissing));
             }
         } catch (SQLException e) {
             throw new StorageException("Failed to check table existence: " + tableName, e);
@@ -121,6 +145,18 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
         }
     }
 
+    private void addMissingTagColumns(final Connection conn, final String tableName,
+                                      final List<String> tagKeys) throws SQLException {
+        for (final String key : tagKeys) {
+            final String ddl = "ALTER TABLE " + tableName + " ADD COLUMN "
+                + GreptimeDBConverter.quoteColumn(key) + " STRING";
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(ddl);
+            }
+            log.info("Added searchable tag column {} to GreptimeDB table {}", key, tableName);
+        }
+    }
+
     @Override
     public void createTable(final Model model) throws StorageException {
         final String ddl = buildCreateTableDDL(model);
@@ -138,7 +174,17 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
         final StringBuilder ddl = new StringBuilder();
         ddl.append("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (\n");
 
-        final List<String> pkColumns = selectPrimaryKeyColumns(model);
+        final boolean expandTags = tagColumns.expandsTags(model);
+        final List<TagColumn> searchableTags = expandTags
+            ? tagColumns.resolve(model) : Collections.emptyList();
+
+        final List<String> pkColumns = new ArrayList<>(selectPrimaryKeyColumns(model));
+        for (final TagColumn tag : searchableTags) {
+            if (tag.isPrimaryKey()) {
+                pkColumns.add(tag.getKey());
+            }
+        }
+
         final List<String> columnDefs = new ArrayList<>();
 
         // Synthetic id column (computed by StorageData.id().build(), not a @Column)
@@ -146,6 +192,10 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
 
         for (final ModelColumn col : model.getColumns()) {
             final String colName = col.getColumnName().getStorageName();
+            if (expandTags && isTagsColumn(colName)) {
+                // The JSON tags column is replaced by the per-key searchable tag columns below.
+                continue;
+            }
             final String sqlType = GreptimeDBConverter.mapToSqlType(col);
             final StringBuilder colDef = new StringBuilder();
             colDef.append("  ").append(GreptimeDBConverter.quoteColumn(colName)).append(" ").append(sqlType);
@@ -155,6 +205,17 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
                 colDef.append(buildIndexClause(col, sqlType));
             }
 
+            columnDefs.add(colDef.toString());
+        }
+
+        // Per-key searchable tag columns: PRIMARY KEY tags need no extra index (the PK prunes),
+        // the rest are inverted-indexed fields.
+        for (final TagColumn tag : searchableTags) {
+            final StringBuilder colDef = new StringBuilder();
+            colDef.append("  ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" STRING");
+            if (!tag.isPrimaryKey()) {
+                colDef.append(" INVERTED INDEX");
+            }
             columnDefs.add(colDef.toString());
         }
 
@@ -206,6 +267,11 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
 
     private boolean isHighCardinalityColumn(final String colName) {
         return GreptimeDBConverter.isHighCardinalityColumn(colName);
+    }
+
+    private static boolean isTagsColumn(final String colName) {
+        // SkyWalking names the searchable-tag List<String> column "tags" on every record.
+        return "tags".equals(colName);
     }
 
     List<String> selectPrimaryKeyColumns(final Model model) {

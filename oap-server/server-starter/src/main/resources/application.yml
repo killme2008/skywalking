@@ -237,6 +237,8 @@ storage:
     recordsTTL: ${SW_STORAGE_GREPTIMEDB_RECORDS_TTL:3d}
     maxJdbcPoolSize: ${SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE:10}
     metadataQueryMaxSize: ${SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE:5000}
+    # Subset of the searchable tag keys promoted into a record table's PRIMARY KEY (low cardinality).
+    primaryKeyTags: ${SW_STORAGE_GREPTIMEDB_PRIMARY_KEY_TAGS:http.method,status_code}
 
 agent-analyzer:
   selector: ${SW_AGENT_ANALYZER:default}

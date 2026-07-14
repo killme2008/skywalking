@@ -405,4 +405,16 @@ class GreptimeDBConverterTest {
         assertEquals("service_traffic_minute",
             GreptimeDBConverter.resolveTrafficTableName("service_traffic"));
     }
+
+    // ---- ToStorage splits the tag list into per-key entries for searchable tag columns ----
+
+    @Test
+    void toStorageShouldSplitTagListIntoPerKeyEntries() {
+        final GreptimeDBConverter.ToStorage toStorage = new GreptimeDBConverter.ToStorage();
+        toStorage.accept("tags", Arrays.asList("http.method=GET", "status_code=200"));
+        final Map<String, Object> map = toStorage.obtain();
+        // Each "key=value" becomes a map entry so the per-key tag column picks it up by key.
+        assertEquals("GET", map.get("http.method"));
+        assertEquals("200", map.get("status_code"));
+    }
 }

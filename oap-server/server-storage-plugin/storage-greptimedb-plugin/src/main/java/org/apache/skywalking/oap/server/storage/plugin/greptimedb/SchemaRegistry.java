@@ -21,6 +21,7 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 import io.greptime.models.DataType;
 import io.greptime.models.TableSchema;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +30,7 @@ import java.util.stream.Collectors;
 import lombok.Getter;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBSearchableTagColumns.TagColumn;
 
 /**
  * Caches the mapping from SkyWalking Model to GreptimeDB table name and gRPC write schema.
@@ -37,6 +39,15 @@ import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 public class SchemaRegistry {
     private final ConcurrentMap<String, String> tableNames = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, WriteSchemaInfo> writeSchemas = new ConcurrentHashMap<>();
+    private final GreptimeDBSearchableTagColumns tagColumns;
+
+    public SchemaRegistry() {
+        this(null);
+    }
+
+    public SchemaRegistry(final GreptimeDBSearchableTagColumns tagColumns) {
+        this.tagColumns = tagColumns;
+    }
 
     /**
      * Get the GreptimeDB table name for the given model. Cached after first resolution.
@@ -67,6 +78,9 @@ public class SchemaRegistry {
         final Set<String> pkColumns = GreptimeDBConverter.selectPrimaryKeyColumns(model)
                                                          .stream()
                                                          .collect(Collectors.toSet());
+        final boolean expandTags = tagColumns != null && tagColumns.expandsTags(model);
+        final List<TagColumn> searchableTags = expandTags
+            ? tagColumns.resolve(model) : Collections.emptyList();
 
         final TableSchema.Builder builder = TableSchema.newBuilder(tableName);
         final List<String> columnNames = new ArrayList<>();
@@ -84,6 +98,10 @@ public class SchemaRegistry {
 
         for (final ModelColumn col : model.getColumns()) {
             final String colName = col.getColumnName().getStorageName();
+            if (expandTags && GreptimeDBSearchableTagColumns.isTagsColumn(colName)) {
+                // The JSON tags column is replaced by the per-key searchable tag columns below.
+                continue;
+            }
             final DataType dataType = GreptimeDBConverter.mapDataType(col);
             columnNames.add(colName);
             dataTypes.add(dataType);
@@ -92,6 +110,17 @@ public class SchemaRegistry {
                 builder.addTag(colName, dataType);
             } else {
                 builder.addField(colName, dataType);
+            }
+        }
+
+        // Per-key searchable tag columns, matching the created table (PK tags are tags, the rest fields).
+        for (final TagColumn tag : searchableTags) {
+            columnNames.add(tag.getKey());
+            dataTypes.add(DataType.String);
+            if (tag.isPrimaryKey()) {
+                builder.addTag(tag.getKey(), DataType.String);
+            } else {
+                builder.addField(tag.getKey(), DataType.String);
             }
         }
 

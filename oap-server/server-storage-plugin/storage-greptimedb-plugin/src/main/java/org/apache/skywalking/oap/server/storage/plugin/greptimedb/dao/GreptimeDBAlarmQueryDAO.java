@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.alarm.AlarmRecord;
 import org.apache.skywalking.oap.server.core.alarm.AlarmRecoveryRecord;
@@ -42,18 +43,19 @@ import org.apache.skywalking.oap.server.core.storage.query.IAlarmQueryDAO;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBSearchableTagColumns;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static java.util.Objects.nonNull;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
-import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.buildJsonPathMatchExpr;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @RequiredArgsConstructor
 public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
     private final GreptimeDBStorageClient client;
+    private final GreptimeDBSearchableTagColumns tagColumns;
 
     @Override
     public Alarms getAlarm(final Integer scopeId, final String keyword,
@@ -81,9 +83,14 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
             params.add(keyword);
         }
         if (CollectionUtils.isNotEmpty(tags)) {
+            final Set<String> searchable = tagColumns.searchableKeys(AlarmRecord.INDEX_NAME);
             for (final Tag tag : tags) {
-                sql.append(" and json_path_match(").append(AlarmRecord.TAGS).append(", ?)");
-                params.add(buildJsonPathMatchExpr(tag.getKey(), tag.getValue()));
+                if (!searchable.contains(tag.getKey())) {
+                    sql.append(" and 1=0");
+                    continue;
+                }
+                sql.append(" and ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" = ?");
+                params.add(tag.getValue());
             }
         }
         sql.append(" order by ").append(AlarmRecord.START_TIME).append(" desc");
@@ -130,9 +137,6 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
             return new Alarms();
         }
         final Duration duration = condition.getDuration();
-        // Non-searchable-tag guard is unnecessary here: GreptimeDB stores every tag in the JSON
-        // `tags` column, so json_path_match can query any tag key (unlike JDBC/ES, where only
-        // configured searchable tags get their own indexed column).
         final List<EntityIdConstraint> entityConstraints = resolveEntityFilters(condition.getEntities());
 
         final StringBuilder sql = new StringBuilder();
@@ -180,9 +184,14 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
             }
         }
         if (CollectionUtils.isNotEmpty(condition.getTags())) {
+            final Set<String> searchable = tagColumns.searchableKeys(AlarmRecord.INDEX_NAME);
             for (final Tag tag : condition.getTags()) {
-                sql.append(" and json_path_match(").append(AlarmRecord.TAGS).append(", ?)");
-                params.add(buildJsonPathMatchExpr(tag.getKey(), tag.getValue()));
+                if (!searchable.contains(tag.getKey())) {
+                    sql.append(" and 1=0");
+                    continue;
+                }
+                sql.append(" and ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" = ?");
+                params.add(tag.getValue());
             }
         }
         sql.append(" order by ").append(AlarmRecord.START_TIME).append(" desc");

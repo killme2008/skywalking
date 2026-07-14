@@ -29,6 +29,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
@@ -73,7 +74,6 @@ import org.testcontainers.utility.DockerImageName;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Mockito.mock;
 
 @Slf4j
 @Testcontainers
@@ -95,6 +95,7 @@ class GreptimeDBIT {
     private GreptimeDBStorageClient client;
     private GreptimeDBStorageConfig config;
     private GreptimeDBTableInstaller installer;
+    private GreptimeDBSearchableTagColumns tagColumns;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -106,7 +107,9 @@ class GreptimeDBIT {
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
 
-        final ModuleManager moduleManager = mock(ModuleManager.class);
+        final ModuleManager moduleManager = TestModels.mockModuleManager(
+            Set.of("http.method", "status_code", "db.type"), "", "");
+        tagColumns = new GreptimeDBSearchableTagColumns(moduleManager, config);
         client = new GreptimeDBStorageClient(config);
         client.connect();
         installer = new GreptimeDBTableInstaller(client, moduleManager, config);
@@ -481,7 +484,7 @@ class GreptimeDBIT {
         writeLogRow(schemaInfo, "log-2", "GET api users returned ok", 2000L);
         writeLogRow(schemaInfo, "log-3", "database connection timeout", 3000L);
 
-        final GreptimeDBLogQueryDAO dao = new GreptimeDBLogQueryDAO(client);
+        final GreptimeDBLogQueryDAO dao = new GreptimeDBLogQueryDAO(client, tagColumns);
 
         // include 'error' — case-insensitive matches_term must hit the uppercase ERROR row only.
         final Logs included = dao.queryLogs(null, null, null, null, Order.DES, 0, 10, null, null,

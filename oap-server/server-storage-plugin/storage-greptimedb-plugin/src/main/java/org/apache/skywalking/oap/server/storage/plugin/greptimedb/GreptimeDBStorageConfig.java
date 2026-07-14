@@ -74,4 +74,12 @@ public class GreptimeDBStorageConfig extends ModuleConfig {
      * Max number of rows returned for metadata queries (services, instances, endpoints).
      */
     private int metadataQueryMaxSize = 5000;
+
+    /**
+     * Comma-separated subset of the searchable tag keys that should join a record table's
+     * PRIMARY KEY (for row-group pruning). Must be low cardinality. The remaining searchable tags
+     * become plain field columns with an inverted index. Keys outside the searchable whitelists are
+     * ignored here.
+     */
+    private String primaryKeyTags = "http.method,status_code";
 }

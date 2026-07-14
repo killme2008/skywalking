@@ -20,7 +20,11 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import org.apache.skywalking.oap.server.core.CoreModule;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
+import org.apache.skywalking.oap.server.core.config.ConfigService;
+import org.apache.skywalking.oap.server.core.config.SearchableTracesTagsWatcher;
 import org.apache.skywalking.oap.server.core.analysis.config.NoneStream;
 import org.apache.skywalking.oap.server.core.analysis.management.ManagementData;
 import org.apache.skywalking.oap.server.core.analysis.metrics.Metrics;
@@ -35,6 +39,9 @@ import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.model.SQLDatabaseExtension;
 import org.apache.skywalking.oap.server.core.storage.model.SQLDatabaseModelExtension;
+import org.apache.skywalking.oap.server.library.module.ModuleManager;
+import org.apache.skywalking.oap.server.library.module.ModuleProviderHolder;
+import org.apache.skywalking.oap.server.library.module.ModuleServiceHolder;
 
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -151,5 +158,27 @@ final class TestModels {
         columns.add(col("activated", int.class));
         columns.add(col("disabled", int.class));
         return managementModel("ui_template", columns);
+    }
+
+    /**
+     * Mock a ModuleManager whose CoreModule exposes a ConfigService with the given searchable tag
+     * whitelists — enough for the tag-column resolver used during record table creation and reads.
+     */
+    static ModuleManager mockModuleManager(final Set<String> tracesTags,
+                                           final String logsTags,
+                                           final String alarmTags) {
+        final ModuleManager moduleManager = mock(ModuleManager.class);
+        final ModuleProviderHolder providerHolder = mock(ModuleProviderHolder.class);
+        final ModuleServiceHolder serviceHolder = mock(ModuleServiceHolder.class);
+        final ConfigService configService = mock(ConfigService.class);
+        final SearchableTracesTagsWatcher tracesWatcher = mock(SearchableTracesTagsWatcher.class);
+        lenient().when(tracesWatcher.getSearchableTags()).thenReturn(tracesTags);
+        lenient().when(configService.getSearchableTracesTags()).thenReturn(tracesWatcher);
+        lenient().when(configService.getSearchableLogsTags()).thenReturn(logsTags);
+        lenient().when(configService.getSearchableAlarmTags()).thenReturn(alarmTags);
+        lenient().when(moduleManager.find(CoreModule.NAME)).thenReturn(providerHolder);
+        lenient().when(providerHolder.provider()).thenReturn(serviceHolder);
+        lenient().when(serviceHolder.getService(ConfigService.class)).thenReturn(configService);
+        return moduleManager;
     }
 }
