@@ -33,6 +33,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
@@ -138,6 +139,20 @@ class GreptimeDBTableInstallerTest {
         // db.type is not a primaryKeyTag -> inverted-indexed field column.
         assertTrue(ddl.contains("`db.type` STRING INVERTED INDEX"),
             "non-PK searchable tag becomes an inverted-indexed field");
+    }
+
+    @Test
+    void buildDDLForRecordShouldRejectSearchableTagColumnCollisions() {
+        for (final String tag : List.of("id", "greptime_ts", "service_id")) {
+            final ModuleManager mm = TestModels.mockModuleManager(Set.of(tag), "", "");
+            final GreptimeDBTableInstaller taggedInstaller = new GreptimeDBTableInstaller(client, mm, config);
+
+            assertThrows(
+                IllegalArgumentException.class,
+                () -> taggedInstaller.buildCreateTableDDL(TestModels.sampleRecordModel()),
+                "Should reject conflicting searchable tag: " + tag
+            );
+        }
     }
 
     @Test

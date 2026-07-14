@@ -58,7 +58,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
 
     @Override
     public List<String> getServiceNames() throws IOException {
-        final String sql = "select " + ZipkinServiceTraffic.SERVICE_NAME
+        final String sql = "select distinct " + ZipkinServiceTraffic.SERVICE_NAME
             + " from " + GreptimeDBConverter.resolveTrafficTableName(ZipkinServiceTraffic.INDEX_NAME)
             + " limit " + NAME_QUERY_MAX_SIZE;
         final List<String> services = new ArrayList<>();
@@ -76,7 +76,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
 
     @Override
     public List<String> getRemoteServiceNames(final String serviceName) throws IOException {
-        final String sql = "select " + ZipkinServiceRelationTraffic.REMOTE_SERVICE_NAME
+        final String sql = "select distinct " + ZipkinServiceRelationTraffic.REMOTE_SERVICE_NAME
             + " from " + GreptimeDBConverter.resolveTrafficTableName(ZipkinServiceRelationTraffic.INDEX_NAME)
             + " where " + ZipkinServiceRelationTraffic.SERVICE_NAME + " = ?"
             + " limit " + NAME_QUERY_MAX_SIZE;
@@ -98,7 +98,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
 
     @Override
     public List<String> getSpanNames(final String serviceName) throws IOException {
-        final String sql = "select " + ZipkinServiceSpanTraffic.SPAN_NAME
+        final String sql = "select distinct " + ZipkinServiceSpanTraffic.SPAN_NAME
             + " from " + GreptimeDBConverter.resolveTrafficTableName(ZipkinServiceSpanTraffic.INDEX_NAME)
             + " where " + ZipkinServiceSpanTraffic.SERVICE_NAME + " = ?"
             + " limit " + NAME_QUERY_MAX_SIZE;

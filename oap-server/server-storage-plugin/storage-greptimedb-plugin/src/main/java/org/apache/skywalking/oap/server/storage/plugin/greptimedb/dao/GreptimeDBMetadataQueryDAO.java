@@ -233,7 +233,7 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
         final StringBuilder inner = new StringBuilder("1=1");
         final List<Object> params = new ArrayList<>();
         appendProcessConditions(inner, params, null, null, agentId,
-            null, 0, 0, false);
+            null, startPingTimeBucket, endPingTimeBucket, false);
         final String sql = latestPerIdSql(
             GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME),
             inner.toString(), null, metadataQueryMaxSize);

@@ -23,7 +23,7 @@ The plugin maps SkyWalking data models to GreptimeDB tables:
 | NoneStream | `merge_mode='last_row'` | Upsert by `id` for profiling tasks |
 
 Key design decisions:
-- **Tags stored as JSON columns** on the main table, eliminating separate tag tables and JOINs. Queried via `json_path_match()`.
+- **Searchable tags stored as per-key columns** with primary-key or inverted indexes, eliminating separate tag tables and JOINs.
 - **Native TTL** via `WITH ('ttl' = '...')` table options. No manual history deletion needed.
 - **No date-partitioned tables**. GreptimeDB handles time-based partitioning internally via TIME INDEX.
 
@@ -74,6 +74,8 @@ storage:
 
 Searchable trace/log/alarm tags (the `searchableTracesTags` / `searchableLogsTags` / `searchableAlarmTags` core config) are stored as per-key indexed columns rather than a JSON blob, so tag filters push down. Keys listed in `primaryKeyTags` join the table's PRIMARY KEY; the rest become inverted-indexed fields.
 
+The searchable-tag list is fixed when OAP installs the GreptimeDB schema. Restart OAP after changing these settings so the installer can reconcile new columns before queries use them. Searchable tag names must not collide with model columns or the reserved `id` and `greptime_ts` columns.
+
 Management data (UI templates and continuous-profiling policies) is stored with `ttl = 'forever'` and never expires, so there is no TTL to configure for it.
 
 ### Running GreptimeDB
@@ -112,5 +114,5 @@ For production cluster deployment, refer to the [GreptimeDB documentation](https
 
 ### Known Limitations
 
-- **JSON column indexing**: Tag queries using `json_path_match()` rely on scanning after primary key + time range filtering. This may be slower than dedicated tag indexes for high-cardinality tag queries. GreptimeDB is working on native JSON indexing support.
+- **Dynamic searchable-tag updates**: Changes take effect after an OAP restart because they require GreptimeDB schema reconciliation.
 - **FULLTEXT search**: Log content FULLTEXT search uses English analyzer by default.

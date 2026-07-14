@@ -139,7 +139,7 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
         this.client = new GreptimeDBStorageClient(config);
         this.tagColumns = new GreptimeDBSearchableTagColumns(getManager(), config);
         this.schemaRegistry = new SchemaRegistry(tagColumns);
-        this.tableInstaller = new GreptimeDBTableInstaller(client, getManager(), config);
+        this.tableInstaller = new GreptimeDBTableInstaller(client, getManager(), config, tagColumns);
 
         // StorageBuilderFactory: use default
         this.registerServiceImplementation(StorageBuilderFactory.class, new StorageBuilderFactory.Default());
@@ -153,7 +153,7 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
 
         // Lifecycle
         this.registerServiceImplementation(IHistoryDeleteDAO.class, new GreptimeDBHistoryDeleteDAO());
-        this.registerServiceImplementation(StorageTTLStatusQuery.class, new GreptimeDBTTLStatusQuery());
+        this.registerServiceImplementation(StorageTTLStatusQuery.class, new GreptimeDBTTLStatusQuery(config));
 
         // Cache
         this.registerServiceImplementation(INetworkAddressAliasDAO.class, new GreptimeDBNetworkAddressAliasDAO(client));

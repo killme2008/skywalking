@@ -19,12 +19,15 @@
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 
 import io.greptime.models.DataType;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -152,5 +155,23 @@ class SchemaRegistryTest {
         assertEquals(DataType.Int64, dataTypes.get(colNames.indexOf("time_bucket")));
         assertEquals(DataType.Int64, dataTypes.get(colNames.indexOf("summation")));
         assertEquals(DataType.TimestampMillisecond, dataTypes.get(colNames.indexOf("greptime_ts")));
+    }
+
+    @Test
+    void searchableTagSnapshotShouldStayConsistentAfterDynamicConfigChanges() {
+        final Set<String> configuredTags = new HashSet<>(Set.of("http.method"));
+        final GreptimeDBSearchableTagColumns tagColumns = new GreptimeDBSearchableTagColumns(
+            TestModels.mockModuleManager(configuredTags, "", ""),
+            new GreptimeDBStorageConfig()
+        );
+        final SchemaRegistry taggedRegistry = new SchemaRegistry(tagColumns);
+        final Model model = TestModels.sampleRecordModel();
+
+        final SchemaRegistry.WriteSchemaInfo schema = taggedRegistry.getWriteSchema(model);
+        configuredTags.add("db.type");
+
+        assertTrue(schema.getColumnNames().contains("http.method"));
+        assertFalse(schema.getColumnNames().contains("db.type"));
+        assertEquals(Set.of("http.method"), tagColumns.searchableKeys(model.getName()));
     }
 }

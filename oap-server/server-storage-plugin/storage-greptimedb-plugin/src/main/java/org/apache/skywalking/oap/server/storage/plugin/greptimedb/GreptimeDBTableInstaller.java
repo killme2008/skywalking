@@ -50,9 +50,16 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
     public GreptimeDBTableInstaller(final GreptimeDBStorageClient client,
                                     final ModuleManager moduleManager,
                                     final GreptimeDBStorageConfig config) {
+        this(client, moduleManager, config, new GreptimeDBSearchableTagColumns(moduleManager, config));
+    }
+
+    public GreptimeDBTableInstaller(final GreptimeDBStorageClient client,
+                                    final ModuleManager moduleManager,
+                                    final GreptimeDBStorageConfig config,
+                                    final GreptimeDBSearchableTagColumns tagColumns) {
         super(client, moduleManager);
         this.config = config;
-        this.tagColumns = new GreptimeDBSearchableTagColumns(moduleManager, config);
+        this.tagColumns = tagColumns;
     }
 
     @Override

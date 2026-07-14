@@ -23,8 +23,10 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,7 @@ import org.apache.skywalking.oap.server.library.util.StringUtil;
 public class GreptimeDBSearchableTagColumns {
     private final ModuleManager moduleManager;
     private final Set<String> primaryKeyTags;
+    private final Map<String, Set<String>> whitelistSnapshots = new ConcurrentHashMap<>();
     private volatile ConfigService configService;
 
     public GreptimeDBSearchableTagColumns(final ModuleManager moduleManager,
@@ -77,6 +80,7 @@ public class GreptimeDBSearchableTagColumns {
         if (whitelist.isEmpty()) {
             return Collections.emptyList();
         }
+        validateNoColumnCollisions(model, whitelist);
         final List<TagColumn> columns = new ArrayList<>();
         for (final String pk : primaryKeyTags) {
             if (whitelist.contains(pk)) {
@@ -103,16 +107,50 @@ public class GreptimeDBSearchableTagColumns {
     }
 
     private Set<String> whitelistFor(final String modelName) {
+        // GreptimeDB columns are fixed by the installer. Freeze the first resolved whitelist so
+        // dynamic trace-tag updates cannot make query SQL reference columns absent from that schema.
+        return whitelistSnapshots.computeIfAbsent(modelName, this::loadWhitelist);
+    }
+
+    private Set<String> loadWhitelist(final String modelName) {
         final ConfigService config = configService();
+        final Set<String> configured;
         switch (modelName) {
             case SegmentRecord.INDEX_NAME:
-                return config.getSearchableTracesTags().getSearchableTags();
+                configured = config.getSearchableTracesTags().getSearchableTags();
+                break;
             case LogRecord.INDEX_NAME:
-                return csvToOrderedSet(config.getSearchableLogsTags());
+                configured = csvToOrderedSet(config.getSearchableLogsTags());
+                break;
             case AlarmRecord.INDEX_NAME:
-                return csvToOrderedSet(config.getSearchableAlarmTags());
+                configured = csvToOrderedSet(config.getSearchableAlarmTags());
+                break;
             default:
                 return Collections.emptySet();
+        }
+        if (configured == null || configured.isEmpty()) {
+            return Collections.emptySet();
+        }
+        return configured.stream()
+                         .map(String::trim)
+                         .filter(StringUtil::isNotEmpty)
+                         .collect(Collectors.collectingAndThen(
+                             Collectors.toCollection(LinkedHashSet::new),
+                             Collections::unmodifiableSet));
+    }
+
+    private void validateNoColumnCollisions(final Model model, final Set<String> whitelist) {
+        final Set<String> reserved = model.getColumns().stream()
+                                          .map(column -> column.getColumnName().getStorageName())
+                                          .collect(Collectors.toCollection(TreeSet::new));
+        reserved.add("id");
+        reserved.add("greptime_ts");
+        for (final String tag : whitelist) {
+            if (reserved.contains(tag)) {
+                throw new IllegalArgumentException(
+                    "Searchable tag '" + tag + "' conflicts with a column in model '"
+                        + model.getName() + "'");
+            }
         }
     }
 
