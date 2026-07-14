@@ -38,6 +38,7 @@ import org.apache.skywalking.oap.server.core.analysis.manual.service.ServiceTraf
 import org.apache.skywalking.oap.server.core.management.ui.template.UITemplate;
 import org.apache.skywalking.oap.server.core.profiling.continuous.storage.ContinuousProfilingPolicy;
 import org.apache.skywalking.oap.server.core.query.PointOfTime;
+import org.apache.skywalking.oap.server.core.query.enumeration.Order;
 import org.apache.skywalking.oap.server.core.query.enumeration.Scope;
 import org.apache.skywalking.oap.server.core.query.enumeration.Step;
 import org.apache.skywalking.oap.server.core.query.input.DashboardSetting;
@@ -45,6 +46,7 @@ import org.apache.skywalking.oap.server.core.query.input.Duration;
 import org.apache.skywalking.oap.server.core.query.input.Entity;
 import org.apache.skywalking.oap.server.core.query.input.MetricsCondition;
 import org.apache.skywalking.oap.server.core.query.type.KVInt;
+import org.apache.skywalking.oap.server.core.query.type.Logs;
 import org.apache.skywalking.oap.server.core.query.type.MetricsValues;
 import org.apache.skywalking.oap.server.core.query.type.Service;
 import org.apache.skywalking.oap.server.core.storage.annotation.Column;
@@ -54,6 +56,7 @@ import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.model.StorageManipulationOpt;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBContinuousProfilingPolicyDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBLogQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBManagementDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetadataQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetricsQueryDAO;
@@ -463,5 +466,56 @@ class GreptimeDBIT {
         cols.add(TestModels.col("value", long.class, true, 0));
         cols.add(TestModels.col("time_bucket", long.class));
         return TestModels.metricsModel("service_resp_time", DownSampling.Minute, cols);
+    }
+
+    // ---- log content keyword search via matches_term over the FULLTEXT-indexed content column ----
+
+    @Test
+    void testQueryLogsByContentKeyword() throws Exception {
+        final Model model = logRecordModel();
+        installer.createTable(model);
+        final SchemaRegistry registry = new SchemaRegistry();
+        final SchemaRegistry.WriteSchemaInfo schemaInfo = registry.getWriteSchema(model);
+
+        writeLogRow(schemaInfo, "log-1", "user login failed with ERROR", 1000L);
+        writeLogRow(schemaInfo, "log-2", "GET api users returned ok", 2000L);
+        writeLogRow(schemaInfo, "log-3", "database connection timeout", 3000L);
+
+        final GreptimeDBLogQueryDAO dao = new GreptimeDBLogQueryDAO(client);
+
+        // include 'error' — case-insensitive matches_term must hit the uppercase ERROR row only.
+        final Logs included = dao.queryLogs(null, null, null, null, Order.DES, 0, 10, null, null,
+            Collections.singletonList("error"), null);
+        assertEquals(1, included.getLogs().size(), "keyword 'error' must match exactly one log");
+        assertTrue(included.getLogs().get(0).getContent().contains("ERROR"));
+
+        // exclude 'error' — the other two logs come back.
+        final Logs excluded = dao.queryLogs(null, null, null, null, Order.DES, 0, 10, null, null,
+            null, Collections.singletonList("error"));
+        assertEquals(2, excluded.getLogs().size(), "excluding 'error' must drop only the ERROR log");
+    }
+
+    private void writeLogRow(final SchemaRegistry.WriteSchemaInfo schemaInfo, final String id,
+                             final String content, final long ts) throws Exception {
+        final Table table = Table.from(schemaInfo.getTableSchema());
+        // Column order: id, service_id, service_instance_id, endpoint_id, trace_id, content_type,
+        // content, tags_raw_data, timestamp, time_bucket, greptime_ts
+        table.addRow(id, "svc", "inst", null, "trace-1", 1, content, new byte[0], ts, 202401010000L, ts);
+        final Result<WriteOk, Err> r = client.getGrpcClient().write(table).get(10, TimeUnit.SECONDS);
+        assertTrue(r.isOk(), "log write should succeed: " + r);
+    }
+
+    private Model logRecordModel() {
+        final List<ModelColumn> cols = new ArrayList<>();
+        cols.add(TestModels.col("service_id", String.class));
+        cols.add(TestModels.col("service_instance_id", String.class));
+        cols.add(TestModels.col("endpoint_id", String.class));
+        cols.add(TestModels.col("trace_id", String.class));
+        cols.add(TestModels.col("content_type", int.class));
+        cols.add(TestModels.col("content", String.class, false, 1_000_000));
+        cols.add(TestModels.col("tags_raw_data", byte[].class, true, 0));
+        cols.add(TestModels.col("timestamp", long.class));
+        cols.add(TestModels.col("time_bucket", long.class));
+        return TestModels.recordModel("log", cols);
     }
 }

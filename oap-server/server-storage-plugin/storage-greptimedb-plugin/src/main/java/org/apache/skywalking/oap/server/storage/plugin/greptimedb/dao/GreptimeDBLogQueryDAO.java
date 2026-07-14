@@ -39,6 +39,7 @@ import org.apache.skywalking.oap.server.core.query.type.Logs;
 import org.apache.skywalking.oap.server.core.storage.query.ILogQueryDAO;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static java.util.Objects.nonNull;
@@ -60,6 +61,12 @@ import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.Gre
 @RequiredArgsConstructor
 public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
     private final GreptimeDBStorageClient client;
+
+    @Override
+    public boolean supportQueryLogsByKeywords() {
+        // content is FULLTEXT-indexed, so keyword search is served via matches_term.
+        return true;
+    }
 
     @Override
     public Logs queryLogs(final String serviceId,
@@ -118,6 +125,23 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
             for (final Tag tag : tags) {
                 sql.append(" and json_path_match(").append(TAGS).append(", ?)");
                 params.add(buildJsonPathMatchExpr(tag.getKey(), tag.getValue()));
+            }
+        }
+
+        // Content keyword search over the FULLTEXT-indexed content column. matches_term is exact
+        // word-level matching; lower() on both sides makes it case-insensitive (the FULLTEXT index's
+        // case_sensitive option only affects the matches() query path, not matches_term).
+        final String contentColumn = GreptimeDBConverter.quoteColumn(CONTENT);
+        if (CollectionUtils.isNotEmpty(keywordsOfContent)) {
+            for (final String keyword : keywordsOfContent) {
+                sql.append(" and matches_term(lower(").append(contentColumn).append("), lower(?))");
+                params.add(keyword);
+            }
+        }
+        if (CollectionUtils.isNotEmpty(excludingKeywordsOfContent)) {
+            for (final String keyword : excludingKeywordsOfContent) {
+                sql.append(" and not matches_term(lower(").append(contentColumn).append("), lower(?))");
+                params.add(keyword);
             }
         }
 
