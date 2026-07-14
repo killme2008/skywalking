@@ -26,6 +26,7 @@ import org.apache.skywalking.oap.server.core.storage.StorageBuilderFactory;
 import org.apache.skywalking.oap.server.core.storage.StorageDAO;
 import org.apache.skywalking.oap.server.core.storage.StorageModule;
 import org.apache.skywalking.oap.server.core.storage.cache.INetworkAddressAliasDAO;
+import org.apache.skywalking.oap.server.core.storage.management.RuntimeRuleManagementDAO;
 import org.apache.skywalking.oap.server.core.storage.management.UITemplateManagementDAO;
 import org.apache.skywalking.oap.server.core.status.ServerStatusService;
 import org.apache.skywalking.oap.server.core.storage.model.ModelInstaller;
@@ -89,6 +90,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDB
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBProfileTaskQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBProfileThreadSnapshotQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBRecordsQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBRuntimeRuleManagementDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBServiceLabelDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBSpanAttachedEventQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBStorageDAO;
@@ -176,6 +178,7 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
 
         // Management
         this.registerServiceImplementation(UITemplateManagementDAO.class, new GreptimeDBUITemplateManagementDAO(client));
+        this.registerServiceImplementation(RuntimeRuleManagementDAO.class, new GreptimeDBRuntimeRuleManagementDAO(client));
 
         // Profiling - trace
         this.registerServiceImplementation(IProfileTaskQueryDAO.class, new GreptimeDBProfileTaskQueryDAO(client));

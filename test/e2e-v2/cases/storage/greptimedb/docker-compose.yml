@@ -48,6 +48,7 @@ services:
       SW_STORAGE_GREPTIMEDB_DATABASE: public
     ports:
       - 12800
+      - 17128
     depends_on:
       greptimedb:
         condition: service_healthy
