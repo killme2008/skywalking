@@ -236,12 +236,11 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
 
     private String resolveTTL(final Model model) {
         if (!model.isTimeSeries()) {
-            // Management / NoneStream data
-            final String mgmtTTL = config.getManagementTTL();
-            if ("0".equals(mgmtTTL) || mgmtTTL.isEmpty()) {
-                return null;
-            }
-            return mgmtTTL;
+            // Management / NoneStream are config tables written with a constant greptime_ts
+            // (see GreptimeDBConverter.MANAGEMENT_TIMESTAMP): 'forever' keeps them from ever expiring,
+            // independent of any database-level default TTL. A purging TTL here would treat every
+            // constant-timestamp row as already expired and wipe the configuration.
+            return "forever";
         }
 
         if (model.isMetric()) {

@@ -40,15 +40,21 @@ public class GreptimeDBContinuousProfilingPolicyDAO implements IContinuousProfil
 
     @Override
     public void savePolicy(final ContinuousProfilingPolicy policy) throws IOException {
+        // Explicit id (= entity.id().build()) + constant greptime_ts make GreptimeDB's
+        // merge_mode=last_row overwrite the prior row instead of appending a new version.
         final String sql = "insert into " + ContinuousProfilingPolicy.INDEX_NAME
-            + " (" + ContinuousProfilingPolicy.SERVICE_ID
+            + " (" + GreptimeDBConverter.quoteColumn("id")
+            + ", " + ContinuousProfilingPolicy.SERVICE_ID
             + ", " + ContinuousProfilingPolicy.UUID
-            + ", " + ContinuousProfilingPolicy.CONFIGURATION_JSON + ") values (?, ?, ?)";
+            + ", " + ContinuousProfilingPolicy.CONFIGURATION_JSON
+            + ", " + GreptimeDBConverter.quoteColumn("greptime_ts") + ") values (?, ?, ?, ?, ?)";
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, policy.getServiceId());
-            ps.setString(2, policy.getUuid());
-            ps.setString(3, policy.getConfigurationJson());
+            ps.setString(1, policy.id().build());
+            ps.setString(2, policy.getServiceId());
+            ps.setString(3, policy.getUuid());
+            ps.setString(4, policy.getConfigurationJson());
+            ps.setLong(5, GreptimeDBConverter.MANAGEMENT_TIMESTAMP);
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new IOException("Failed to save continuous profiling policy", e);

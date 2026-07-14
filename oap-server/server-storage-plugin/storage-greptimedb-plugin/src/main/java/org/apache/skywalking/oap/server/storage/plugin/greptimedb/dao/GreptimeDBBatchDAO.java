@@ -19,9 +19,11 @@
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
 import io.greptime.models.Table;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.storage.IBatchDAO;
@@ -84,26 +86,32 @@ public class GreptimeDBBatchDAO implements IBatchDAO {
             return CompletableFuture.completedFuture(null);
         }
 
-        return client.write(tables.toArray(new Table[0])).thenAccept(result -> {
-            if (result != null && result.isOk()) {
-                for (final GreptimeDBInsertRequest req : insertCallbacks) {
-                    req.onInsertCompleted();
-                }
-            } else {
-                if (result != null) {
-                    log.error("GreptimeDB batch write error: {}", result.getErr());
-                }
-                // Notify update requests so session cache knows to retry
-                for (final GreptimeDBUpdateRequest req : updateCallbacks) {
-                    req.onUpdateFailure();
-                }
+        // The returned future must reflect the write outcome: PersistenceTimer relies on exceptional
+        // completion to know a flush failed. Completing normally on error would silently drop records
+        // (which carry no session-cache retry) and hide metric write failures.
+        return client.write(tables.toArray(new Table[0])).handle((result, throwable) -> {
+            if (throwable != null) {
+                log.error("Failed to flush batch to GreptimeDB", throwable);
+                notifyUpdateFailure(updateCallbacks);
+                throw new CompletionException(throwable);
             }
-        }).exceptionally(throwable -> {
-            log.error("Failed to flush batch to GreptimeDB", throwable);
-            for (final GreptimeDBUpdateRequest req : updateCallbacks) {
-                req.onUpdateFailure();
+            if (result == null || !result.isOk()) {
+                final Object err = result == null ? "null result" : result.getErr();
+                log.error("GreptimeDB batch write error: {}", err);
+                notifyUpdateFailure(updateCallbacks);
+                throw new CompletionException(new IOException("GreptimeDB batch write failed: " + err));
+            }
+            for (final GreptimeDBInsertRequest req : insertCallbacks) {
+                req.onInsertCompleted();
             }
             return null;
         });
+    }
+
+    private static void notifyUpdateFailure(final List<GreptimeDBUpdateRequest> updateCallbacks) {
+        // Keep dirty entries in the session cache so the next persistence cycle retries them.
+        for (final GreptimeDBUpdateRequest req : updateCallbacks) {
+            req.onUpdateFailure();
+        }
     }
 }

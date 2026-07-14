@@ -17,7 +17,7 @@ version: '2.1'
 
 services:
   greptimedb:
-    image: greptime/greptimedb:v1.0.0-rc.1
+    image: greptime/greptimedb:v1.1.2
     expose:
       - 4000
       - 4001

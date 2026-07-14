@@ -49,7 +49,6 @@ class GreptimeDBTableInstallerTest {
         config = new GreptimeDBStorageConfig();
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
-        config.setManagementTTL("0");
         installer = new GreptimeDBTableInstaller(client, moduleManager, config);
     }
 
@@ -152,18 +151,12 @@ class GreptimeDBTableInstallerTest {
     }
 
     @Test
-    void buildDDLForManagementShouldNotHaveTTLWhenZero() {
+    void buildDDLForManagementShouldNeverExpire() {
         final Model model = TestModels.sampleManagementModel();
         final String ddl = installer.buildCreateTableDDL(model);
-        assertFalse(ddl.contains("'ttl'"), "Management with TTL=0 should not have TTL option");
-    }
-
-    @Test
-    void buildDDLForManagementShouldHaveTTLWhenConfigured() {
-        config.setManagementTTL("30d");
-        final Model model = TestModels.sampleManagementModel();
-        final String ddl = installer.buildCreateTableDDL(model);
-        assertTrue(ddl.contains("'ttl' = '30d'"));
+        // Config tables use a constant greptime_ts; 'forever' keeps them from ever being purged.
+        assertTrue(ddl.contains("'ttl' = 'forever'"),
+            "Management (non-timeSeries) tables must be created with ttl = 'forever'");
     }
 
     // ---- DDL: NoneStream model ----

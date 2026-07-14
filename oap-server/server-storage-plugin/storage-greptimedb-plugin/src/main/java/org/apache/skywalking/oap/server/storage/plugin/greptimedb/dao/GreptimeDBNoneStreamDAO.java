@@ -23,18 +23,22 @@ import io.greptime.models.Result;
 import io.greptime.models.Table;
 import io.greptime.models.WriteOk;
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.analysis.config.NoneStream;
 import org.apache.skywalking.oap.server.core.storage.INoneStreamDAO;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.type.StorageBuilder;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
 
 @Slf4j
 @RequiredArgsConstructor
 public class GreptimeDBNoneStreamDAO implements INoneStreamDAO {
+    private static final long WRITE_TIMEOUT_SECONDS = 30;
+
     private final GreptimeDBStorageClient client;
     private final SchemaRegistry schemaRegistry;
     @SuppressWarnings("rawtypes")
@@ -44,17 +48,19 @@ public class GreptimeDBNoneStreamDAO implements INoneStreamDAO {
     @SuppressWarnings("unchecked")
     public void insert(final Model model, final NoneStream noneStream) throws IOException {
         final SchemaRegistry.WriteSchemaInfo schemaInfo = schemaRegistry.getWriteSchema(model);
-        // NoneStream is not time-series, use current time for greptime_ts
-        final long greptimeTs = System.currentTimeMillis();
+        // Non-time-series config: constant greptime_ts so re-inserts upsert in place (see MANAGEMENT_TIMESTAMP).
         final Table table = GreptimeDBTableBuilder.buildTable(
-            noneStream, storageBuilder, model, schemaInfo, greptimeTs);
+            noneStream, storageBuilder, model, schemaInfo, GreptimeDBConverter.MANAGEMENT_TIMESTAMP);
         table.complete();
 
         try {
-            final Result<WriteOk, Err> result = client.write(table).get();
+            final Result<WriteOk, Err> result = client.write(table).get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (result != null && !result.isOk()) {
                 throw new IOException("GreptimeDB write error for " + model.getName() + ": " + result.getErr());
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while inserting NoneStream to GreptimeDB: " + model.getName(), e);
         } catch (IOException e) {
             throw e;
         } catch (Exception e) {

@@ -31,6 +31,8 @@ import org.apache.skywalking.oap.server.core.storage.cache.INetworkAddressAliasD
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerIdSql;
+
 @Slf4j
 @RequiredArgsConstructor
 public class GreptimeDBNetworkAddressAliasDAO implements INetworkAddressAliasDAO {
@@ -39,14 +41,8 @@ public class GreptimeDBNetworkAddressAliasDAO implements INetworkAddressAliasDAO
     @Override
     public List<NetworkAddressAlias> loadLastUpdate(final long timeBucket) {
         final String tableName = GreptimeDBConverter.resolveTrafficTableName(NetworkAddressAlias.INDEX_NAME);
-        final String sql = "select "
-            + NetworkAddressAlias.ADDRESS + ", "
-            + NetworkAddressAlias.REPRESENT_SERVICE_ID + ", "
-            + NetworkAddressAlias.REPRESENT_SERVICE_INSTANCE_ID + ", "
-            + NetworkAddressAlias.LAST_UPDATE_TIME_BUCKET + ", "
-            + NetworkAddressAlias.TIME_BUCKET
-            + " from " + tableName
-            + " where " + NetworkAddressAlias.LAST_UPDATE_TIME_BUCKET + " >= ?";
+        final String sql = latestPerIdSql(tableName,
+            NetworkAddressAlias.LAST_UPDATE_TIME_BUCKET + " >= ?", null, 0);
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setLong(1, timeBucket);

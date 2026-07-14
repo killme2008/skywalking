@@ -189,11 +189,14 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
     @Override
     public List<SegmentRecord> queryByTraceId(final String traceId,
                                                @Nullable final Duration duration) throws IOException {
-        final String sql = DETAIL_SELECT + " from " + SegmentRecord.INDEX_NAME
-            + " where " + SegmentRecord.TRACE_ID + " = ?";
+        final StringBuilder sql = new StringBuilder(DETAIL_SELECT + " from " + SegmentRecord.INDEX_NAME
+            + " where " + SegmentRecord.TRACE_ID + " = ?");
+        final List<Object> params = new ArrayList<>();
+        params.add(traceId);
+        appendDurationCondition(sql, params, duration);
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, traceId);
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 return buildRecords(rs);
             }
@@ -210,13 +213,13 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
         }
         final String placeholders = segmentIdList.stream().map(id -> "?")
             .collect(Collectors.joining(","));
-        final String sql = DETAIL_SELECT + " from " + SegmentRecord.INDEX_NAME
-            + " where " + SegmentRecord.SEGMENT_ID + " in (" + placeholders + ")";
+        final StringBuilder sql = new StringBuilder(DETAIL_SELECT + " from " + SegmentRecord.INDEX_NAME
+            + " where " + SegmentRecord.SEGMENT_ID + " in (" + placeholders + ")");
+        final List<Object> params = new ArrayList<>(segmentIdList);
+        appendDurationCondition(sql, params, duration);
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (int i = 0; i < segmentIdList.size(); i++) {
-                ps.setString(i + 1, segmentIdList.get(i));
-            }
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 return buildRecords(rs);
             }
@@ -236,24 +239,34 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
             .collect(Collectors.joining(","));
         final String instanceIdPlaceholders = instanceIdList.stream().map(id -> "?")
             .collect(Collectors.joining(","));
-        final String sql = DETAIL_SELECT + " from " + SegmentRecord.INDEX_NAME
+        final StringBuilder sql = new StringBuilder(DETAIL_SELECT + " from " + SegmentRecord.INDEX_NAME
             + " where " + SegmentRecord.TRACE_ID + " in (" + traceIdPlaceholders + ")"
-            + " and " + SegmentRecord.SERVICE_INSTANCE_ID + " in (" + instanceIdPlaceholders + ")";
+            + " and " + SegmentRecord.SERVICE_INSTANCE_ID + " in (" + instanceIdPlaceholders + ")");
+        final List<Object> params = new ArrayList<>();
+        params.addAll(traceIdList);
+        params.addAll(instanceIdList);
+        appendDurationCondition(sql, params, duration);
 
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            int idx = 1;
-            for (final String tid : traceIdList) {
-                ps.setString(idx++, tid);
-            }
-            for (final String iid : instanceIdList) {
-                ps.setString(idx++, iid);
-            }
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 return buildRecords(rs);
             }
         } catch (SQLException e) {
             throw new IOException("Failed to query by trace_id with instance_id", e);
+        }
+    }
+
+    private static void appendDurationCondition(final StringBuilder sql, final List<Object> params,
+                                                @Nullable final Duration duration) {
+        if (duration == null) {
+            return;
+        }
+        final long startSecondTB = duration.getStartTimeBucketInSec();
+        final long endSecondTB = duration.getEndTimeBucketInSec();
+        if (startSecondTB != 0 && endSecondTB != 0) {
+            appendTimestampCondition(sql, params, startSecondTB, endSecondTB);
         }
     }
 

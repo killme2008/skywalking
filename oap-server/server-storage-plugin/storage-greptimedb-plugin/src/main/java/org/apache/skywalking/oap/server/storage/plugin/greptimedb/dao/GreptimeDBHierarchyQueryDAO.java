@@ -33,6 +33,8 @@ import org.apache.skywalking.oap.server.core.storage.query.IHierarchyQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerIdSql;
+
 public class GreptimeDBHierarchyQueryDAO implements IHierarchyQueryDAO {
     private final GreptimeDBStorageClient client;
     private final int queryMaxSize;
@@ -45,8 +47,9 @@ public class GreptimeDBHierarchyQueryDAO implements IHierarchyQueryDAO {
 
     @Override
     public List<ServiceHierarchyRelationTraffic> readAllServiceHierarchyRelations() throws Exception {
-        final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(ServiceHierarchyRelationTraffic.INDEX_NAME)
-            + " limit " + queryMaxSize;
+        final String sql = latestPerIdSql(
+            GreptimeDBConverter.resolveTrafficTableName(ServiceHierarchyRelationTraffic.INDEX_NAME),
+            null, null, queryMaxSize);
         final List<ServiceHierarchyRelationTraffic> results = new ArrayList<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -66,11 +69,13 @@ public class GreptimeDBHierarchyQueryDAO implements IHierarchyQueryDAO {
     public List<InstanceHierarchyRelationTraffic> readInstanceHierarchyRelations(
             final String instanceId, final String layer) throws Exception {
         final int layerValue = Layer.valueOf(layer).value();
-        final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(InstanceHierarchyRelationTraffic.INDEX_NAME)
-            + " where ((" + InstanceHierarchyRelationTraffic.INSTANCE_ID + " = ?"
+        final String innerWhere = "((" + InstanceHierarchyRelationTraffic.INSTANCE_ID + " = ?"
             + " and " + InstanceHierarchyRelationTraffic.SERVICE_LAYER + " = ?)"
             + " or (" + InstanceHierarchyRelationTraffic.RELATED_INSTANCE_ID + " = ?"
             + " and " + InstanceHierarchyRelationTraffic.RELATED_SERVICE_LAYER + " = ?))";
+        final String sql = latestPerIdSql(
+            GreptimeDBConverter.resolveTrafficTableName(InstanceHierarchyRelationTraffic.INDEX_NAME),
+            innerWhere, null, 0);
 
         final List<InstanceHierarchyRelationTraffic> results = new ArrayList<>();
         try (Connection conn = client.getConnection();

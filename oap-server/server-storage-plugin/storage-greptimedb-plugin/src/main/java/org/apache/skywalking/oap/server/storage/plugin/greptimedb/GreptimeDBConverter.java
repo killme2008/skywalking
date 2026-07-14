@@ -47,6 +47,18 @@ import org.apache.skywalking.oap.server.library.util.StringUtil;
  */
 public final class GreptimeDBConverter {
 
+    /**
+     * Fixed greptime_ts for non-time-series config tables (management data, NoneStream, UI templates,
+     * continuous-profiling policies). These model exactly one row per entity: the primary key is the
+     * synthetic {@code id} and GreptimeDB deduplicates on (PRIMARY KEY, TIME INDEX) under
+     * merge_mode=last_row. Writing a constant timestamp makes every re-write of the same entity
+     * collide on (id, greptime_ts) and overwrite in place, so edits update rather than append a new
+     * versioned row (a moving timestamp such as now()/update_time would append instead). These tables
+     * are created with {@code ttl = 'forever'} (see GreptimeDBTableInstaller#resolveTTL) so the
+     * constant timestamp is never treated as expired.
+     */
+    public static final long MANAGEMENT_TIMESTAMP = 0L;
+
     private GreptimeDBConverter() {
     }
 

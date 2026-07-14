@@ -66,21 +66,6 @@ public class GreptimeDBStorageConfig extends ModuleConfig {
     private String recordsTTL = "3d";
 
     /**
-     * TTL for management data. "0" means no expiry.
-     */
-    private String managementTTL = "0";
-
-    /**
-     * Max number of rows per bulk write.
-     */
-    private int maxBulkSize = 5000;
-
-    /**
-     * Flush interval in seconds.
-     */
-    private int flushInterval = 15;
-
-    /**
      * Max JDBC connection pool size.
      */
     private int maxJdbcPoolSize = 10;

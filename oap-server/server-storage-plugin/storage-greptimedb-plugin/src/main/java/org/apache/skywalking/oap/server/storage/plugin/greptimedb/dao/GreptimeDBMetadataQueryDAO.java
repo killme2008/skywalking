@@ -55,6 +55,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConv
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static org.apache.skywalking.oap.server.core.analysis.manual.instance.InstanceTraffic.PropertyUtil.LANGUAGE;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerIdSql;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @Slf4j
@@ -72,8 +73,9 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
 
     @Override
     public List<Service> listServices() throws IOException {
-        final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(ServiceTraffic.INDEX_NAME)
-            + " limit " + metadataQueryMaxSize;
+        final String sql = latestPerIdSql(
+            GreptimeDBConverter.resolveTrafficTableName(ServiceTraffic.INDEX_NAME),
+            null, null, metadataQueryMaxSize);
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
              ResultSet rs = ps.executeQuery()) {
@@ -86,23 +88,23 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
     @Override
     public List<ServiceInstance> listInstances(@Nullable final Duration duration,
                                                 final String serviceId) throws IOException {
-        final StringBuilder sql = new StringBuilder();
+        final String table = GreptimeDBConverter.resolveTrafficTableName(InstanceTraffic.INDEX_NAME);
+        final StringBuilder inner = new StringBuilder();
         final List<Object> params = new ArrayList<>();
-        sql.append("select * from ").append(GreptimeDBConverter.resolveTrafficTableName(InstanceTraffic.INDEX_NAME));
-        sql.append(" where ").append(InstanceTraffic.SERVICE_ID).append(" = ?");
+        inner.append(InstanceTraffic.SERVICE_ID).append(" = ?");
         params.add(serviceId);
         if (duration != null) {
             final long startMinuteTimeBucket = TimeBucket.getMinuteTimeBucket(duration.getStartTimestamp());
             final long endMinuteTimeBucket = TimeBucket.getMinuteTimeBucket(duration.getEndTimestamp());
-            sql.append(" and ").append(InstanceTraffic.LAST_PING_TIME_BUCKET).append(" >= ?");
+            inner.append(" and ").append(InstanceTraffic.LAST_PING_TIME_BUCKET).append(" >= ?");
             params.add(startMinuteTimeBucket);
-            sql.append(" and ").append(InstanceTraffic.TIME_BUCKET).append(" <= ?");
+            inner.append(" and ").append(InstanceTraffic.TIME_BUCKET).append(" <= ?");
             params.add(endMinuteTimeBucket);
         }
-        sql.append(" limit ").append(metadataQueryMaxSize);
+        final String sql = latestPerIdSql(table, inner.toString(), null, metadataQueryMaxSize);
 
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 return buildInstances(rs);
@@ -115,7 +117,7 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
     @Override
     public ServiceInstance getInstance(final String instanceId) throws IOException {
         final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(InstanceTraffic.INDEX_NAME)
-            + " where `id` = ? limit 1";
+            + " where `id` = ? order by `greptime_ts` desc limit 1";
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, instanceId);
@@ -135,8 +137,9 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
         }
         final String placeholders = instanceIds.stream().map(id -> "?")
             .collect(Collectors.joining(","));
-        final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(InstanceTraffic.INDEX_NAME)
-            + " where `id` in (" + placeholders + ") limit " + instanceIds.size();
+        final String sql = latestPerIdSql(
+            GreptimeDBConverter.resolveTrafficTableName(InstanceTraffic.INDEX_NAME),
+            "`id` in (" + placeholders + ")", null, instanceIds.size());
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             for (int i = 0; i < instanceIds.size(); i++) {
@@ -153,28 +156,28 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
     @Override
     public List<Endpoint> findEndpoint(final String keyword, final String serviceId,
                                         final int limit, final Duration duration) throws IOException {
-        final StringBuilder sql = new StringBuilder();
+        final String table = GreptimeDBConverter.resolveTrafficTableName(EndpointTraffic.INDEX_NAME);
+        final StringBuilder inner = new StringBuilder();
         final List<Object> params = new ArrayList<>();
-        sql.append("select * from ").append(GreptimeDBConverter.resolveTrafficTableName(EndpointTraffic.INDEX_NAME));
-        sql.append(" where ").append(EndpointTraffic.SERVICE_ID).append(" = ?");
+        inner.append(EndpointTraffic.SERVICE_ID).append(" = ?");
         params.add(serviceId);
         if (!Strings.isNullOrEmpty(keyword)) {
-            sql.append(" and ").append(EndpointTraffic.NAME).append(" like concat('%',?,'%')");
+            inner.append(" and ").append(EndpointTraffic.NAME).append(" like concat('%',?,'%')");
             params.add(keyword);
         }
         if (duration != null) {
             final long startMinuteTimeBucket = TimeBucket.getMinuteTimeBucket(duration.getStartTimestamp());
             final long endMinuteTimeBucket = TimeBucket.getMinuteTimeBucket(duration.getEndTimestamp());
-            sql.append(" and ").append(EndpointTraffic.LAST_PING_TIME_BUCKET).append(" >= ?");
+            inner.append(" and ").append(EndpointTraffic.LAST_PING_TIME_BUCKET).append(" >= ?");
             params.add(startMinuteTimeBucket);
-            sql.append(" and ").append(EndpointTraffic.TIME_BUCKET).append(" <= ?");
+            inner.append(" and ").append(EndpointTraffic.TIME_BUCKET).append(" <= ?");
             params.add(endMinuteTimeBucket);
         }
-        sql.append(" order by ").append(EndpointTraffic.TIME_BUCKET).append(" desc");
-        sql.append(" limit ").append(limit);
+        final String sql = latestPerIdSql(table, inner.toString(),
+            "order by t." + GreptimeDBConverter.quoteColumn(EndpointTraffic.TIME_BUCKET) + " desc", limit);
 
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+             PreparedStatement ps = conn.prepareStatement(sql)) {
             setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 final List<Endpoint> endpoints = new ArrayList<>();
@@ -199,42 +202,42 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
                                         final ProfilingSupportStatus supportStatus,
                                         final long lastPingStartTimeBucket,
                                         final long lastPingEndTimeBucket) throws IOException {
-        final StringBuilder sql = new StringBuilder();
+        final StringBuilder inner = new StringBuilder("1=1");
         final List<Object> params = new ArrayList<>();
-        sql.append("select * from ").append(GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME));
-        sql.append(" where 1=1");
-        appendProcessConditions(sql, params, serviceId, null, null,
+        appendProcessConditions(inner, params, serviceId, null, null,
             supportStatus, lastPingStartTimeBucket, lastPingEndTimeBucket, false);
-        sql.append(" limit ").append(metadataQueryMaxSize);
-        return executeProcessQuery(sql.toString(), params);
+        final String sql = latestPerIdSql(
+            GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME),
+            inner.toString(), null, metadataQueryMaxSize);
+        return executeProcessQuery(sql, params);
     }
 
     @Override
     public List<Process> listProcesses(final String serviceInstanceId,
                                         final Duration duration,
                                         final boolean includeVirtual) throws IOException {
-        final StringBuilder sql = new StringBuilder();
+        final StringBuilder inner = new StringBuilder("1=1");
         final List<Object> params = new ArrayList<>();
-        sql.append("select * from ").append(GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME));
-        sql.append(" where 1=1");
-        appendProcessConditions(sql, params, null, serviceInstanceId, null,
+        appendProcessConditions(inner, params, null, serviceInstanceId, null,
             null, duration.getStartTimeBucket(), duration.getEndTimeBucket(), includeVirtual);
-        sql.append(" limit ").append(metadataQueryMaxSize);
-        return executeProcessQuery(sql.toString(), params);
+        final String sql = latestPerIdSql(
+            GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME),
+            inner.toString(), null, metadataQueryMaxSize);
+        return executeProcessQuery(sql, params);
     }
 
     @Override
     public List<Process> listProcesses(final String agentId,
                                         final long startPingTimeBucket,
                                         final long endPingTimeBucket) throws IOException {
-        final StringBuilder sql = new StringBuilder();
+        final StringBuilder inner = new StringBuilder("1=1");
         final List<Object> params = new ArrayList<>();
-        sql.append("select * from ").append(GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME));
-        sql.append(" where 1=1");
-        appendProcessConditions(sql, params, null, null, agentId,
+        appendProcessConditions(inner, params, null, null, agentId,
             null, 0, 0, false);
-        sql.append(" limit ").append(metadataQueryMaxSize);
-        return executeProcessQuery(sql.toString(), params);
+        final String sql = latestPerIdSql(
+            GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME),
+            inner.toString(), null, metadataQueryMaxSize);
+        return executeProcessQuery(sql, params);
     }
 
     @Override
@@ -244,7 +247,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
                                  final long lastPingEndTimeBucket) throws IOException {
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
-        sql.append("select count(1) as total from ").append(GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME));
+        sql.append("select count(distinct ").append(GreptimeDBConverter.quoteColumn("id"))
+           .append(") as total from ").append(GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME));
         sql.append(" where 1=1");
         appendProcessConditions(sql, params, serviceId, null, null,
             profilingSupportStatus, lastPingStartTimeBucket, lastPingEndTimeBucket, false);
@@ -255,7 +259,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
     public long getProcessCount(final String instanceId) throws IOException {
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
-        sql.append("select count(1) as total from ").append(GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME));
+        sql.append("select count(distinct ").append(GreptimeDBConverter.quoteColumn("id"))
+           .append(") as total from ").append(GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME));
         sql.append(" where 1=1");
         appendProcessConditions(sql, params, null, instanceId, null,
             null, 0, 0, false);
@@ -265,7 +270,7 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
     @Override
     public Process getProcess(final String processId) throws IOException {
         final String sql = "select * from " + GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME)
-            + " where `id` = ? limit 1";
+            + " where `id` = ? order by `greptime_ts` desc limit 1";
         final List<Object> params = new ArrayList<>();
         params.add(processId);
         final List<Process> processes = executeProcessQuery(sql, params);

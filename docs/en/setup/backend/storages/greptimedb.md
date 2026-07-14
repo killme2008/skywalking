@@ -51,10 +51,6 @@ storage:
     # TTL per data category. Use GreptimeDB duration format (e.g., "7d", "168h").
     metricsTTL: ${SW_STORAGE_GREPTIMEDB_METRICS_TTL:7d}
     recordsTTL: ${SW_STORAGE_GREPTIMEDB_RECORDS_TTL:3d}
-    # "0" means no expiry for management data.
-    managementTTL: ${SW_STORAGE_GREPTIMEDB_MANAGEMENT_TTL:0}
-    maxBulkSize: ${SW_STORAGE_GREPTIMEDB_MAX_BULK_SIZE:5000}
-    flushInterval: ${SW_STORAGE_GREPTIMEDB_FLUSH_INTERVAL:15}
     maxJdbcPoolSize: ${SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE:10}
     metadataQueryMaxSize: ${SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE:5000}
 ```
@@ -71,11 +67,10 @@ storage:
 | `password` | `SW_STORAGE_GREPTIMEDB_PASSWORD` | `""` | Authentication password. |
 | `metricsTTL` | `SW_STORAGE_GREPTIMEDB_METRICS_TTL` | `7d` | TTL for metrics data (all downsampling levels). |
 | `recordsTTL` | `SW_STORAGE_GREPTIMEDB_RECORDS_TTL` | `3d` | TTL for records (traces, logs, alarms). |
-| `managementTTL` | `SW_STORAGE_GREPTIMEDB_MANAGEMENT_TTL` | `0` | TTL for management data. `0` means no expiry. |
-| `maxBulkSize` | `SW_STORAGE_GREPTIMEDB_MAX_BULK_SIZE` | `5000` | Max rows per bulk write request. |
-| `flushInterval` | `SW_STORAGE_GREPTIMEDB_FLUSH_INTERVAL` | `15` | Flush interval in seconds. |
 | `maxJdbcPoolSize` | `SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE` | `10` | Max JDBC connection pool size. |
 | `metadataQueryMaxSize` | `SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE` | `5000` | Max rows for metadata queries (services, instances, endpoints). |
+
+Management data (UI templates and continuous-profiling policies) is stored with `ttl = 'forever'` and never expires, so there is no TTL to configure for it.
 
 ### Running GreptimeDB
 

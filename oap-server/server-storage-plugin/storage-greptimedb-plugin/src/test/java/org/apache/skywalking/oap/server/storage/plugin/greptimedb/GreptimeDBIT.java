@@ -26,12 +26,39 @@ import io.greptime.models.WriteOk;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.skywalking.oap.server.core.analysis.DownSampling;
+import org.apache.skywalking.oap.server.core.analysis.Layer;
+import org.apache.skywalking.oap.server.core.analysis.manual.service.ServiceTraffic;
+import org.apache.skywalking.oap.server.core.management.ui.template.UITemplate;
+import org.apache.skywalking.oap.server.core.profiling.continuous.storage.ContinuousProfilingPolicy;
+import org.apache.skywalking.oap.server.core.query.PointOfTime;
+import org.apache.skywalking.oap.server.core.query.enumeration.Scope;
+import org.apache.skywalking.oap.server.core.query.enumeration.Step;
+import org.apache.skywalking.oap.server.core.query.input.DashboardSetting;
+import org.apache.skywalking.oap.server.core.query.input.Duration;
+import org.apache.skywalking.oap.server.core.query.input.Entity;
+import org.apache.skywalking.oap.server.core.query.input.MetricsCondition;
+import org.apache.skywalking.oap.server.core.query.type.KVInt;
+import org.apache.skywalking.oap.server.core.query.type.MetricsValues;
+import org.apache.skywalking.oap.server.core.query.type.Service;
+import org.apache.skywalking.oap.server.core.storage.annotation.Column;
+import org.apache.skywalking.oap.server.core.storage.annotation.ValueColumnMetadata;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
+import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.model.StorageManipulationOpt;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBContinuousProfilingPolicyDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBManagementDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetadataQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetricsQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTableBuilder;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBUITemplateManagementDAO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
@@ -41,6 +68,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -53,7 +81,7 @@ class GreptimeDBIT {
 
     @Container
     public GenericContainer<?> greptimeDB = new GenericContainer<>(
-        DockerImageName.parse("greptime/greptimedb:v1.0.0-rc.1"))
+        DockerImageName.parse("greptime/greptimedb:v1.1.2"))
         .withCommand("standalone", "start",
             "--http-addr", "0.0.0.0:4000",
             "--rpc-bind-addr", "0.0.0.0:4001",
@@ -74,7 +102,6 @@ class GreptimeDBIT {
         config.setDatabase("public");
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
-        config.setManagementTTL("0");
 
         final ModuleManager moduleManager = mock(ModuleManager.class);
         client = new GreptimeDBStorageClient(config);
@@ -236,5 +263,205 @@ class GreptimeDBIT {
         final GreptimeDBTableInstaller.InstallInfo info =
             installer.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent());
         assertTrue(info.isAllExist(), "Existing table should return true");
+    }
+
+    // ---- management/config tables must upsert in place, not append versioned rows ----
+
+    @Test
+    void testUITemplateChangeUpsertsInPlace() throws Exception {
+        installer.createTable(uiTemplateModel());
+        final GreptimeDBUITemplateManagementDAO dao = new GreptimeDBUITemplateManagementDAO(client);
+
+        final DashboardSetting setting = new DashboardSetting();
+        setting.setId("dashboard-1");
+        setting.setConfiguration("v1");
+        dao.addTemplate(setting);
+
+        // Changing the same template must overwrite in place, not append a second row.
+        setting.setConfiguration("v2");
+        dao.changeTemplate(setting);
+
+        assertEquals(1, dao.getAllTemplates(true).size(),
+            "changeTemplate must upsert, not append a second versioned row");
+        assertEquals("v2", dao.getTemplate("dashboard-1").getConfiguration(),
+            "getTemplate must return the latest configuration");
+
+        // disableTemplate must also upsert in place and drop out of the enabled-only listing.
+        dao.disableTemplate("dashboard-1");
+        assertEquals(1, dao.getAllTemplates(true).size(), "disable must not create a new row");
+        assertTrue(dao.getAllTemplates(false).isEmpty(),
+            "disabled template must be excluded when includingDisabled=false");
+    }
+
+    @Test
+    void testContinuousProfilingPolicyUpsertsInPlace() throws Exception {
+        installer.createTable(continuousProfilingPolicyModel());
+        final GreptimeDBContinuousProfilingPolicyDAO dao = new GreptimeDBContinuousProfilingPolicyDAO(client);
+
+        final ContinuousProfilingPolicy p1 = new ContinuousProfilingPolicy();
+        p1.setServiceId("svc-1");
+        p1.setUuid("uuid-1");
+        p1.setConfigurationJson("{\"v\":1}");
+        dao.savePolicy(p1);
+
+        final ContinuousProfilingPolicy p2 = new ContinuousProfilingPolicy();
+        p2.setServiceId("svc-1");
+        p2.setUuid("uuid-2");
+        p2.setConfigurationJson("{\"v\":2}");
+        dao.savePolicy(p2);
+
+        final List<ContinuousProfilingPolicy> policies =
+            dao.queryPolicies(Collections.singletonList("svc-1"));
+        assertEquals(1, policies.size(), "savePolicy must upsert per serviceId, not append");
+        assertEquals("uuid-2", policies.get(0).getUuid(), "queryPolicies must return the latest policy");
+    }
+
+    @Test
+    void testManagementDAOGrpcUpsertsInPlace() throws Exception {
+        final Model model = uiTemplateModel();
+        installer.createTable(model);
+        final GreptimeDBManagementDAO dao =
+            new GreptimeDBManagementDAO(client, new SchemaRegistry(), new UITemplate.Builder());
+
+        final UITemplate t1 = new UITemplate();
+        t1.setTemplateId("g1");
+        t1.setConfiguration("v1");
+        t1.setUpdateTime(1L);
+        t1.setDisabled(0);
+        dao.insert(model, t1);
+
+        final UITemplate t2 = new UITemplate();
+        t2.setTemplateId("g1");
+        t2.setConfiguration("v2");
+        t2.setUpdateTime(2L);
+        t2.setDisabled(0);
+        dao.insert(model, t2);
+
+        try (Connection conn = client.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(
+                 "SELECT configuration FROM ui_template WHERE template_id = 'g1'")) {
+            assertTrue(rs.next(), "row must exist after gRPC insert");
+            assertEquals("v2", rs.getString("configuration"),
+                "gRPC insert must upsert to the latest value via constant greptime_ts");
+            assertFalse(rs.next(), "constant greptime_ts must keep exactly one row per entity");
+        }
+    }
+
+    private Model uiTemplateModel() {
+        final List<ModelColumn> cols = new ArrayList<>();
+        cols.add(TestModels.col("template_id", String.class));
+        cols.add(TestModels.col("configuration", String.class, true, 1_000_000));
+        cols.add(TestModels.col("update_time", long.class));
+        cols.add(TestModels.col("disabled", int.class));
+        return TestModels.managementModel("ui_template", cols);
+    }
+
+    private Model continuousProfilingPolicyModel() {
+        final List<ModelColumn> cols = new ArrayList<>();
+        cols.add(TestModels.col("service_id", String.class));
+        cols.add(TestModels.col("uuid", String.class));
+        cols.add(TestModels.col("configuration_json", String.class, true, 5000));
+        return TestModels.managementModel("continuous_profiling_policy", cols);
+    }
+
+    // ---- traffic/metadata reads must return the latest row per entity, not one per active minute ----
+
+    @Test
+    void testListServicesDedupsPerMinuteRows() throws Exception {
+        final Model model = serviceTrafficModel();
+        installer.createTable(model);
+        final SchemaRegistry registry = new SchemaRegistry();
+        final SchemaRegistry.WriteSchemaInfo schemaInfo = registry.getWriteSchema(model);
+
+        final ServiceTraffic svc = new ServiceTraffic();
+        svc.setName("serviceA");
+        svc.setServiceId("serviceA-id");
+        svc.setLayer(Layer.GENERAL);
+
+        // Same entity persisted in two different minutes: stable id, increasing greptime_ts -> two rows.
+        for (final long ts : new long[] {1_704_067_200_000L, 1_704_067_260_000L}) {
+            final Table table = GreptimeDBTableBuilder.buildTable(
+                svc, new ServiceTraffic.Builder(), model, schemaInfo, ts);
+            final Result<WriteOk, Err> r = client.getGrpcClient().write(table).get(10, TimeUnit.SECONDS);
+            assertTrue(r.isOk(), "traffic write should succeed: " + r);
+        }
+
+        final GreptimeDBMetadataQueryDAO dao = new GreptimeDBMetadataQueryDAO(client, 5000);
+        final List<Service> services = dao.listServices();
+        assertEquals(1, services.size(), "listServices must collapse the per-minute rows to one service");
+        assertEquals("serviceA", services.get(0).getName());
+    }
+
+    private Model serviceTrafficModel() {
+        final List<ModelColumn> cols = new ArrayList<>();
+        cols.add(TestModels.col("service_traffic_name", String.class));
+        cols.add(TestModels.col("short_name", String.class));
+        cols.add(TestModels.col("service_id", String.class));
+        cols.add(TestModels.col("service_group", String.class));
+        cols.add(TestModels.col("layer", Layer.class));
+        cols.add(TestModels.col("time_bucket", long.class));
+        return TestModels.metricsModel("service_traffic", DownSampling.Minute, cols);
+    }
+
+    // ---- entity-scoped metrics reads add entity_id/greptime_ts pruning without dropping rows ----
+
+    @Test
+    void testReadMetricsValuesReturnsAllPointsWithPrunedPredicates() throws Exception {
+        final Model model = serviceRespTimeModel();
+        installer.createTable(model);
+        final SchemaRegistry registry = new SchemaRegistry();
+        final SchemaRegistry.WriteSchemaInfo schemaInfo = registry.getWriteSchema(model);
+
+        final Entity entity = new Entity();
+        entity.setScope(Scope.Service);
+        entity.setServiceName("svcB3");
+        entity.setNormal(true);
+        final String entityId = entity.buildId();
+
+        final Duration duration = new Duration();
+        duration.setStep(Step.MINUTE);
+        duration.setStart("2024-01-01 0000");
+        duration.setEnd("2024-01-01 0002");
+
+        final List<PointOfTime> points = duration.assembleDurationPoints();
+        long value = 100L;
+        for (final PointOfTime point : points) {
+            final long bucket = point.getPoint();
+            final Table table = Table.from(schemaInfo.getTableSchema());
+            // Column order: id, entity_id, value, time_bucket, greptime_ts
+            table.addRow(point.id(entityId), entityId, value, bucket,
+                GreptimeDBConverter.timeBucketToTimestamp(bucket, DownSampling.Minute));
+            final Result<WriteOk, Err> r = client.getGrpcClient().write(table).get(10, TimeUnit.SECONDS);
+            assertTrue(r.isOk(), "metric write should succeed: " + r);
+            value += 100L;
+        }
+
+        // readMetricsValues resolves the default through ValueColumnMetadata; register the metric first.
+        ValueColumnMetadata.INSTANCE.putIfAbsent(
+            "service_resp_time", "value", Column.ValueDataType.COMMON_VALUE, 0, 0);
+
+        final MetricsCondition condition = new MetricsCondition();
+        condition.setName("service_resp_time");
+        condition.setEntity(entity);
+
+        final GreptimeDBMetricsQueryDAO dao = new GreptimeDBMetricsQueryDAO(client);
+        final MetricsValues values = dao.readMetricsValues(condition, "value", duration);
+
+        final List<KVInt> kvs = values.getValues().getValues();
+        assertEquals(points.size(), kvs.size(),
+            "every in-range point must be returned despite the added pruning predicates");
+        for (final KVInt kv : kvs) {
+            assertTrue(kv.getValue() > 0,
+                "a written point must keep its value, not the default that a wrongly-pruned row would leave");
+        }
+    }
+
+    private Model serviceRespTimeModel() {
+        final List<ModelColumn> cols = new ArrayList<>();
+        cols.add(TestModels.col("entity_id", String.class));
+        cols.add(TestModels.col("value", long.class, true, 0));
+        cols.add(TestModels.col("time_bucket", long.class));
+        return TestModels.metricsModel("service_resp_time", DownSampling.Minute, cols);
     }
 }

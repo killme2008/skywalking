@@ -92,6 +92,9 @@ public class GreptimeDBEventQueryDAO implements IEventQueryDAO {
 
     @Override
     public Events queryEvents(final List<EventQueryCondition> conditionList) throws Exception {
+        if (conditionList == null || conditionList.isEmpty()) {
+            return new Events();
+        }
         final List<Object> params = new ArrayList<>();
         final String whereClause = conditionList.stream()
             .map(condition -> {

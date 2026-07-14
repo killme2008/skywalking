@@ -37,7 +37,9 @@ public class GreptimeDBServiceLabelDAO implements IServiceLabelDAO {
 
     @Override
     public List<String> queryAllLabels(final String serviceId) throws IOException {
-        final String sql = "select " + ServiceLabelRecord.LABEL
+        // The table keeps one row per active minute; DISTINCT collapses the repeats so each
+        // (service, label) pair is returned once.
+        final String sql = "select distinct " + ServiceLabelRecord.LABEL
             + " from " + GreptimeDBConverter.resolveTrafficTableName(ServiceLabelRecord.INDEX_NAME)
             + " where " + ServiceLabelRecord.SERVICE_ID + " = ?";
         final List<String> labels = new ArrayList<>();

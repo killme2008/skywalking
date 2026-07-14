@@ -110,44 +110,39 @@ public class GreptimeDBUITemplateManagementDAO implements UITemplateManagementDA
 
     @Override
     public TemplateChangeStatus disableTemplate(final String id) throws IOException {
-        final String sql = "insert into " + UITemplate.INDEX_NAME
-            + " (" + UITemplate.TEMPLATE_ID
-            + ", " + UITemplate.CONFIGURATION
-            + ", " + UITemplate.UPDATE_TIME
-            + ", " + UITemplate.DISABLED + ") values (?, ?, ?, ?)";
-        // First, get the existing template to preserve configuration
+        // Preserve the existing configuration and re-write the row with disabled=TRUE.
+        // insertOrUpdate carries the synthetic id + constant greptime_ts, so this upserts in place.
         final DashboardConfiguration existing = getTemplate(id);
         if (existing == null) {
             return TemplateChangeStatus.builder().status(false).id(id)
                 .message("Can't find the template").build();
         }
-        try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, id);
-            ps.setString(2, existing.getConfiguration());
-            ps.setLong(3, System.currentTimeMillis());
-            ps.setInt(4, BooleanUtils.TRUE);
-            ps.executeUpdate();
-            return TemplateChangeStatus.builder().status(true).id(id).build();
-        } catch (SQLException e) {
-            log.error(e.getMessage(), e);
-            return TemplateChangeStatus.builder().status(false).id(id)
-                .message("Can't disable the template").build();
-        }
+        final UITemplate uiTemplate = new UITemplate();
+        uiTemplate.setTemplateId(id);
+        uiTemplate.setConfiguration(existing.getConfiguration());
+        uiTemplate.setUpdateTime(System.currentTimeMillis());
+        uiTemplate.setDisabled(BooleanUtils.TRUE);
+        return insertOrUpdate(uiTemplate);
     }
 
     private TemplateChangeStatus insertOrUpdate(final UITemplate uiTemplate) {
+        // Explicit id (= entity.id().build()) + constant greptime_ts make GreptimeDB's
+        // merge_mode=last_row overwrite the prior row instead of appending a new version.
         final String sql = "insert into " + UITemplate.INDEX_NAME
-            + " (" + UITemplate.TEMPLATE_ID
+            + " (" + GreptimeDBConverter.quoteColumn("id")
+            + ", " + UITemplate.TEMPLATE_ID
             + ", " + UITemplate.CONFIGURATION
             + ", " + UITemplate.UPDATE_TIME
-            + ", " + UITemplate.DISABLED + ") values (?, ?, ?, ?)";
+            + ", " + UITemplate.DISABLED
+            + ", " + GreptimeDBConverter.quoteColumn("greptime_ts") + ") values (?, ?, ?, ?, ?, ?)";
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, uiTemplate.getTemplateId());
-            ps.setString(2, uiTemplate.getConfiguration());
-            ps.setLong(3, uiTemplate.getUpdateTime());
-            ps.setInt(4, uiTemplate.getDisabled());
+            ps.setString(1, uiTemplate.id().build());
+            ps.setString(2, uiTemplate.getTemplateId());
+            ps.setString(3, uiTemplate.getConfiguration());
+            ps.setLong(4, uiTemplate.getUpdateTime());
+            ps.setInt(5, uiTemplate.getDisabled());
+            ps.setLong(6, GreptimeDBConverter.MANAGEMENT_TIMESTAMP);
             ps.executeUpdate();
             return TemplateChangeStatus.builder().status(true).id(uiTemplate.getTemplateId()).build();
         } catch (SQLException e) {

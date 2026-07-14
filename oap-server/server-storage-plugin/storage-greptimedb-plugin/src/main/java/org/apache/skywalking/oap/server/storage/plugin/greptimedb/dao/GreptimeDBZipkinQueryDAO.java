@@ -27,8 +27,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -180,12 +181,12 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
         if (CollectionUtils.isNotEmpty(request.annotationQuery())) {
             for (final Map.Entry<String, String> annotation
                     : request.annotationQuery().entrySet()) {
-                sql.append(" and ").append(ZipkinSpanRecord.QUERY).append(" LIKE ?");
+                sql.append(" and ").append(ZipkinSpanRecord.QUERY).append(" LIKE ? ESCAPE '\\'");
                 if (annotation.getValue().isEmpty()) {
-                    params.add("%" + annotation.getKey() + "%");
+                    params.add("%" + escapeLike(annotation.getKey()) + "%");
                 } else {
-                    params.add("%" + annotation.getKey() + "="
-                        + annotation.getValue() + "%");
+                    params.add("%" + escapeLike(annotation.getKey()) + "="
+                        + escapeLike(annotation.getValue()) + "%");
                 }
             }
         }
@@ -195,7 +196,8 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
             .append(") desc");
         sql.append(" limit ").append(request.limit());
 
-        final Set<String> traceIds = new HashSet<>();
+        // LinkedHashSet keeps the "recent first" order the first-stage order-by selected.
+        final Set<String> traceIds = new LinkedHashSet<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             for (int i = 0; i < params.size(); i++) {
@@ -210,7 +212,25 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
             throw new IOException("Failed to query Zipkin traces", e);
         }
 
-        return getTraces(traceIds, duration);
+        // The id-based re-query groups spans by its own order; restore the first-stage trace order.
+        final Map<String, List<Span>> byTraceId = new HashMap<>();
+        for (final List<Span> spans : getTraces(traceIds, duration)) {
+            if (!spans.isEmpty()) {
+                byTraceId.put(spans.get(0).traceId(), spans);
+            }
+        }
+        final List<List<Span>> ordered = new ArrayList<>();
+        for (final String traceId : traceIds) {
+            final List<Span> spans = byTraceId.get(traceId);
+            if (spans != null) {
+                ordered.add(spans);
+            }
+        }
+        return ordered;
+    }
+
+    private static String escapeLike(final String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     @Override

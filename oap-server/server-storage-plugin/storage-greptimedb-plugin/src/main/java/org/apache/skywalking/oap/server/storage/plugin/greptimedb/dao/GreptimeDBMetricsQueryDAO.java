@@ -70,15 +70,12 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
             return metricsValues;
         }
 
-        final String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(","));
         final String sql = "select `id`, " + valueColumnName + " from " + tableName
-            + " where `id` in (" + placeholders + ")";
+            + entityScopedWhere(entityId, ids.size());
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (int i = 0; i < ids.size(); i++) {
-                ps.setString(i + 1, ids.get(i));
-            }
+            bindEntityScoped(ps, entityId, duration, ids);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     final KVInt kv = new KVInt();
@@ -117,15 +114,12 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
             return new ArrayList<>();
         }
 
-        final String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(","));
         final String sql = "select `id`, " + valueColumnName + " from " + tableName
-            + " where `id` in (" + placeholders + ")";
+            + entityScopedWhere(entityId, ids.size());
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (int i = 0; i < ids.size(); i++) {
-                ps.setString(i + 1, ids.get(i));
-            }
+            bindEntityScoped(ps, entityId, duration, ids);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     final String id = rs.getString("id");
@@ -204,16 +198,13 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
             return heatMap;
         }
 
-        final String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(","));
         final String sql = "select `id`, " + valueColumnName + " as dataset from " + tableName
-            + " where `id` in (" + placeholders + ")";
+            + entityScopedWhere(entityId, ids.size());
         final int defaultValue = ValueColumnMetadata.INSTANCE.getDefaultValue(condition.getName());
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            for (int i = 0; i < ids.size(); i++) {
-                ps.setString(i + 1, ids.get(i));
-            }
+            bindEntityScoped(ps, entityId, duration, ids);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     heatMap.buildColumn(rs.getString("id"), rs.getString("dataset"), defaultValue);
@@ -260,5 +251,42 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
             throw new IOException("Failed to list entity ids in range from " + tableName, e);
         }
         return entityIds;
+    }
+
+    /**
+     * WHERE clause for an entity-scoped metrics read: prune by entity_id (the metric PK tag) and the
+     * greptime_ts range (the time index), then pin the exact rows by their synthetic id. Without the
+     * first two predicates GreptimeDB falls back to a full scan of the non-indexed id field.
+     * entityId is null for All-scope metrics (no entity_id dimension), where the id predicate + time
+     * range are the only prunable ones.
+     */
+    private static String entityScopedWhere(final String entityId, final int idCount) {
+        final StringBuilder placeholders = new StringBuilder();
+        for (int i = 0; i < idCount; i++) {
+            if (i > 0) {
+                placeholders.append(',');
+            }
+            placeholders.append('?');
+        }
+        final StringBuilder where = new StringBuilder(" where ");
+        if (entityId != null) {
+            where.append(Metrics.ENTITY_ID).append(" = ? and ");
+        }
+        where.append(GREPTIME_TS).append(" >= ? and ").append(GREPTIME_TS).append(" <= ?")
+             .append(" and `id` in (").append(placeholders).append(")");
+        return where.toString();
+    }
+
+    private static void bindEntityScoped(final PreparedStatement ps, final String entityId,
+                                         final Duration duration, final List<String> ids) throws SQLException {
+        int idx = 1;
+        if (entityId != null) {
+            ps.setString(idx++, entityId);
+        }
+        ps.setTimestamp(idx++, toTimestamp(duration.getStartTimeBucket()));
+        ps.setTimestamp(idx++, toTimestamp(duration.getEndTimeBucket()));
+        for (final String id : ids) {
+            ps.setString(idx++, id);
+        }
     }
 }

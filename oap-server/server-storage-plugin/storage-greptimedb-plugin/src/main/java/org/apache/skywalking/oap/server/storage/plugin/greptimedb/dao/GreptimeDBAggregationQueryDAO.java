@@ -24,9 +24,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.metrics.Metrics;
 import org.apache.skywalking.oap.server.core.query.enumeration.Order;
@@ -98,7 +96,8 @@ public class GreptimeDBAggregationQueryDAO implements IAggregationQueryDAO {
                 while (rs.next()) {
                     final SelectedRecord record = new SelectedRecord();
                     record.setId(rs.getString(Metrics.ENTITY_ID));
-                    record.setValue(String.valueOf(rs.getInt("result")));
+                    // avg() is Float64; getInt would truncate the fractional part.
+                    record.setValue(String.valueOf(rs.getDouble("result")));
                     results.add(record);
                 }
             }
@@ -106,12 +105,7 @@ public class GreptimeDBAggregationQueryDAO implements IAggregationQueryDAO {
             throw new IOException("Failed to sort metrics from " + tableName, e);
         }
 
-        final Comparator<SelectedRecord> comparator = Order.ASC.equals(condition.getOrder())
-            ? Comparator.comparingLong(it -> Long.parseLong(it.getValue()))
-            : Comparator.<SelectedRecord, Long>comparing(
-                it -> Long.parseLong(it.getValue())).reversed();
-        return results.stream().sorted(comparator)
-            .limit(condition.getTopN())
-            .collect(Collectors.toList());
+        // The subquery already orders by result and applies the topN limit, so no in-Java re-sort.
+        return results;
     }
 }

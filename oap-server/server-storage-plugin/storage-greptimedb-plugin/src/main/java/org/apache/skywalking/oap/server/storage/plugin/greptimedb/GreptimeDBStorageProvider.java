@@ -27,6 +27,7 @@ import org.apache.skywalking.oap.server.core.storage.StorageDAO;
 import org.apache.skywalking.oap.server.core.storage.StorageModule;
 import org.apache.skywalking.oap.server.core.storage.cache.INetworkAddressAliasDAO;
 import org.apache.skywalking.oap.server.core.storage.management.UITemplateManagementDAO;
+import org.apache.skywalking.oap.server.core.status.ServerStatusService;
 import org.apache.skywalking.oap.server.core.storage.model.ModelInstaller;
 import org.apache.skywalking.oap.server.core.storage.model.ModelRegistry;
 import org.apache.skywalking.oap.server.core.storage.profiling.asyncprofiler.IAsyncProfilerTaskLogQueryDAO;
@@ -207,6 +208,12 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
                         .provider()
                         .getService(ModelRegistry.class)
                         .addModelListener(tableInstaller);
+
+            getManager().find(CoreModule.NAME)
+                        .provider()
+                        .getService(ServerStatusService.class)
+                        .registerConfigDumpExtension(
+                            new GreptimeDBConfigDumpExtension(StorageModule.NAME + "." + name(), config));
         } catch (Exception e) {
             throw new ModuleStartException("Failed to connect to GreptimeDB", e);
         }

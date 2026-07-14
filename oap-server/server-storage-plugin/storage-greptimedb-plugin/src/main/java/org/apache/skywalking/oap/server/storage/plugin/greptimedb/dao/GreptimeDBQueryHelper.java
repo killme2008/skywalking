@@ -24,6 +24,7 @@ import java.sql.Timestamp;
 import java.util.List;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
+import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
@@ -88,6 +89,42 @@ public final class GreptimeDBQueryHelper {
             conditions.add(GREPTIME_TS + " <= ?");
             params.add(toTimestamp(endTimeBucket));
         }
+    }
+
+    /**
+     * Wrap a traffic/metadata table read so that only the latest row per synthetic {@code id}
+     * is returned. These tables accumulate one row per active minute (the {@code id} is a stable
+     * business key, {@code greptime_ts} increases each persistence period); a self-join against
+     * max({@code greptime_ts}) per id collapses them to a single current row, matching the
+     * upsert-in-place semantics of the JDBC/ES storages.
+     *
+     * @param table       the physical table name
+     * @param innerWhere  row-selection predicate without the {@code where} keyword (null/empty for
+     *                    none); every bound parameter belongs to this clause
+     * @param outerSuffix an optional trailing clause applied to the deduplicated rows, e.g.
+     *                    {@code order by t.`time_bucket` desc} (null/empty for none)
+     * @param limit       row limit, appended only when positive
+     * @return the deduplicating SQL
+     */
+    static String latestPerIdSql(final String table, final String innerWhere,
+                                 final String outerSuffix, final int limit) {
+        final String id = GreptimeDBConverter.quoteColumn("id");
+        final String ts = GreptimeDBConverter.quoteColumn(GREPTIME_TS);
+        final StringBuilder sql = new StringBuilder();
+        sql.append("select t.* from ").append(table).append(" t join (select ")
+           .append(id).append(", max(").append(ts).append(") as mx from ").append(table);
+        if (StringUtil.isNotEmpty(innerWhere)) {
+            sql.append(" where ").append(innerWhere);
+        }
+        sql.append(" group by ").append(id).append(") latest on t.").append(id)
+           .append(" = latest.").append(id).append(" and t.").append(ts).append(" = latest.mx");
+        if (StringUtil.isNotEmpty(outerSuffix)) {
+            sql.append(' ').append(outerSuffix);
+        }
+        if (limit > 0) {
+            sql.append(" limit ").append(limit);
+        }
+        return sql.toString();
     }
 
     static String buildJsonPathMatchExpr(final String key, final String value) {

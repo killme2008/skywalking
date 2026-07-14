@@ -24,6 +24,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,6 +41,8 @@ import org.apache.skywalking.oap.server.library.client.request.UpdateRequest;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
+
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.GREPTIME_TS;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -61,13 +64,30 @@ public class GreptimeDBMetricsDAO implements IMetricsDAO {
             return new ArrayList<>();
         }
 
+        // The batch is a read-before-merge over the current persistence cycle, so its time buckets
+        // span a tight range. Add a greptime_ts range to prune to those partitions instead of scanning
+        // the whole TTL window of the non-indexed id field.
+        long minTimeBucket = Long.MAX_VALUE;
+        long maxTimeBucket = Long.MIN_VALUE;
+        for (final Metrics m : metrics) {
+            final long tb = m.getTimeBucket();
+            minTimeBucket = Math.min(minTimeBucket, tb);
+            maxTimeBucket = Math.max(maxTimeBucket, tb);
+        }
+
         final String placeholders = ids.stream().map(id -> "?").collect(Collectors.joining(","));
-        final String sql = "SELECT * FROM " + tableName + " WHERE `id` IN (" + placeholders + ")";
+        final String sql = "SELECT * FROM " + tableName
+            + " WHERE " + GREPTIME_TS + " >= ? AND " + GREPTIME_TS + " <= ?"
+            + " AND `id` IN (" + placeholders + ")";
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, new Timestamp(
+                GreptimeDBConverter.timeBucketToTimestamp(minTimeBucket, model.getDownsampling())));
+            ps.setTimestamp(2, new Timestamp(
+                GreptimeDBConverter.timeBucketToTimestamp(maxTimeBucket, model.getDownsampling())));
             for (int i = 0; i < ids.size(); i++) {
-                ps.setString(i + 1, ids.get(i));
+                ps.setString(i + 3, ids.get(i));
             }
 
             final List<Metrics> result = new ArrayList<>();
