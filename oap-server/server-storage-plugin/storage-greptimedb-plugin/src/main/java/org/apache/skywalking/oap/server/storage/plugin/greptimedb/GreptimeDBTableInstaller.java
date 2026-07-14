@@ -19,6 +19,7 @@
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -27,6 +28,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.storage.StorageException;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBSearchableTagColumns.TagColumn;
@@ -40,6 +42,10 @@ import org.apache.skywalking.oap.server.library.module.ModuleManager;
 public class GreptimeDBTableInstaller extends ModelInstaller {
     private final GreptimeDBStorageConfig config;
     private final GreptimeDBSearchableTagColumns tagColumns;
+    // Existing table names, loaded once from information_schema. A per-model SHOW TABLES probe is
+    // O(total tables) on GreptimeDB, so probing each of ~5000 models turns boot into O(n^2); a single
+    // upfront listing plus O(1) membership keeps it linear.
+    private volatile Set<String> existingTables;
 
     public GreptimeDBTableInstaller(final GreptimeDBStorageClient client,
                                     final ModuleManager moduleManager,
@@ -54,7 +60,8 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
         final String tableName = GreptimeDBConverter.resolveTableName(model);
         final GreptimeDBInstallInfo info = new GreptimeDBInstallInfo(model);
         try (Connection conn = ((GreptimeDBStorageClient) client).getConnection()) {
-            if (!tableExists(conn, tableName)) {
+            ensureExistingTablesLoaded(conn);
+            if (!existingTables.contains(tableName)) {
                 info.setAllExist(false);
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.MISSING, "table not found");
                 return info;
@@ -111,10 +118,25 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
         return info;
     }
 
-    private boolean tableExists(final Connection conn, final String tableName) throws SQLException {
-        try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SHOW TABLES LIKE '" + tableName + "'")) {
-            return rs.next();
+    private void ensureExistingTablesLoaded(final Connection conn) throws SQLException {
+        if (existingTables != null) {
+            return;
+        }
+        synchronized (this) {
+            if (existingTables != null) {
+                return;
+            }
+            final Set<String> loaded = ConcurrentHashMap.newKeySet();
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = ?")) {
+                ps.setString(1, config.getDatabase());
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        loaded.add(rs.getString(1));
+                    }
+                }
+            }
+            existingTables = loaded;
         }
     }
 
@@ -164,6 +186,9 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
         log.debug("DDL: {}", ddl);
         try {
             ((GreptimeDBStorageClient) client).executeDDL(ddl);
+            if (existingTables != null) {
+                existingTables.add(GreptimeDBConverter.resolveTableName(model));
+            }
         } catch (SQLException e) {
             throw new StorageException("Failed to create table for model: " + model.getName(), e);
         }
