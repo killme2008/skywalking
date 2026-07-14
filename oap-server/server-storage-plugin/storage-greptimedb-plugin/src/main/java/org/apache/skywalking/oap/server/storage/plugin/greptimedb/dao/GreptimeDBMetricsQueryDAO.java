@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.metrics.DataTable;
+import org.apache.skywalking.oap.server.core.analysis.metrics.Metrics;
 import org.apache.skywalking.oap.server.core.query.PointOfTime;
 import org.apache.skywalking.oap.server.core.query.input.Duration;
 import org.apache.skywalking.oap.server.core.query.input.MetricsCondition;
@@ -224,5 +225,40 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
 
         heatMap.fixMissingColumns(ids, defaultValue);
         return heatMap;
+    }
+
+    @Override
+    public List<String> listEntityIdsInRange(final String metricName,
+                                             final String valueColumnName,
+                                             final String valueType,
+                                             final Duration duration,
+                                             final int limit) throws IOException {
+        final String tableName = GreptimeDBConverter.resolveMetricsTableName(metricName, duration.getStep());
+        // Distinct entity ids in range, most-recent first. entity_id is the metric PK (tag) and
+        // greptime_ts the time index — both prune. Order by the latest greptime_ts so a wide window
+        // keeps the freshest entities under the row cap.
+        final String sql = "select " + Metrics.ENTITY_ID + ", max(" + GREPTIME_TS + ") as latest"
+            + " from " + tableName
+            + " where " + GREPTIME_TS + " >= ? and " + GREPTIME_TS + " <= ?"
+            + " group by " + Metrics.ENTITY_ID
+            + " order by latest desc"
+            + " limit " + limit;
+
+        final List<String> entityIds = new ArrayList<>();
+        try (Connection conn = client.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setTimestamp(1, toTimestamp(duration.getStartTimeBucket()));
+            ps.setTimestamp(2, toTimestamp(duration.getEndTimeBucket()));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    entityIds.add(rs.getString(Metrics.ENTITY_ID));
+                }
+            }
+        } catch (SQLException e) {
+            // An unresolvable metric table (e.g. a foreign metric with no table here) surfaces as an
+            // error, not a silent empty result — an empty list must mean "no entities in range".
+            throw new IOException("Failed to list entity ids in range from " + tableName, e);
+        }
+        return entityIds;
     }
 }

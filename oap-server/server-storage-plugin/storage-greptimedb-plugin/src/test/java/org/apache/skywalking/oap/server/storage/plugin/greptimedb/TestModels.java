@@ -70,7 +70,7 @@ final class TestModels {
                                final List<ModelColumn> columns) {
         return new Model(
             name, columns, 1, ds,
-            false, Metrics.class, true,
+            false, Metrics.class, true, false,
             new SQLDatabaseModelExtension(),
             new BanyanDBModelExtension(),
             new ElasticSearchModelExtension()
@@ -80,7 +80,7 @@ final class TestModels {
     static Model recordModel(final String name, final List<ModelColumn> columns) {
         return new Model(
             name, columns, 2, DownSampling.Second,
-            false, Record.class, false,
+            false, Record.class, false, false,
             new SQLDatabaseModelExtension(),
             new BanyanDBModelExtension(),
             new ElasticSearchModelExtension()
@@ -90,7 +90,7 @@ final class TestModels {
     static Model managementModel(final String name, final List<ModelColumn> columns) {
         return new Model(
             name, columns, 3, DownSampling.None,
-            false, ManagementData.class, false,
+            false, ManagementData.class, false, false,
             new SQLDatabaseModelExtension(),
             new BanyanDBModelExtension(),
             new ElasticSearchModelExtension()
@@ -100,7 +100,7 @@ final class TestModels {
     static Model noneStreamModel(final String name, final List<ModelColumn> columns) {
         return new Model(
             name, columns, 4, DownSampling.None,
-            false, NoneStream.class, false,
+            false, NoneStream.class, false, false,
             new SQLDatabaseModelExtension(),
             new BanyanDBModelExtension(),
             new ElasticSearchModelExtension()

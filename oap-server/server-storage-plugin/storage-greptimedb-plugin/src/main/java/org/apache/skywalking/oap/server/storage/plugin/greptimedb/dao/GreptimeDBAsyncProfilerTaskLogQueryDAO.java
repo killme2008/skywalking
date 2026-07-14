@@ -37,15 +37,18 @@ public class GreptimeDBAsyncProfilerTaskLogQueryDAO implements IAsyncProfilerTas
     private final GreptimeDBStorageClient client;
 
     @Override
-    public List<AsyncProfilerTaskLog> getTaskLogList() throws IOException {
+    public List<AsyncProfilerTaskLog> getTaskLogList(final String taskId) throws IOException {
         final String sql = "select * from " + AsyncProfilerTaskLogRecord.INDEX_NAME
+            + " where " + AsyncProfilerTaskLogRecord.TASK_ID + " = ?"
             + " order by " + AsyncProfilerTaskLogRecord.OPERATION_TIME + " desc";
         final List<AsyncProfilerTaskLog> logs = new ArrayList<>();
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                logs.add(parseLog(rs));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, taskId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    logs.add(parseLog(rs));
+                }
             }
         } catch (SQLException e) {
             throw new IOException("Failed to query async profiler task logs", e);

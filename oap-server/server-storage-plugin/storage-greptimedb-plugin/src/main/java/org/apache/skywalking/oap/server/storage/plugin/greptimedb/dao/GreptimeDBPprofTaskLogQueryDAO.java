@@ -37,15 +37,18 @@ public class GreptimeDBPprofTaskLogQueryDAO implements IPprofTaskLogQueryDAO {
     private final GreptimeDBStorageClient client;
 
     @Override
-    public List<PprofTaskLog> getTaskLogList() throws IOException {
+    public List<PprofTaskLog> getTaskLogList(final String taskId) throws IOException {
         final String sql = "select * from " + PprofTaskLogRecord.INDEX_NAME
+            + " where " + PprofTaskLogRecord.TASK_ID + " = ?"
             + " order by " + PprofTaskLogRecord.OPERATION_TIME + " desc";
         final List<PprofTaskLog> logs = new ArrayList<>();
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-                logs.add(parseLog(rs));
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, taskId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    logs.add(parseLog(rs));
+                }
             }
         } catch (SQLException e) {
             throw new IOException("Failed to query pprof task logs", e);

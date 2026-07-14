@@ -30,6 +30,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
+import org.apache.skywalking.oap.server.core.storage.model.StorageManipulationOpt;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -223,7 +224,8 @@ class GreptimeDBIT {
     @Test
     void testIsExistsForNonExistentTable() throws Exception {
         final Model model = TestModels.sampleMetricsModel();
-        final GreptimeDBTableInstaller.InstallInfo info = installer.isExists(model);
+        final GreptimeDBTableInstaller.InstallInfo info =
+            installer.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent());
         assertTrue(!info.isAllExist(), "Non-existent table should return false");
     }
 
@@ -231,7 +233,8 @@ class GreptimeDBIT {
     void testIsExistsForExistingTable() throws Exception {
         final Model model = TestModels.sampleMetricsModel();
         installer.createTable(model);
-        final GreptimeDBTableInstaller.InstallInfo info = installer.isExists(model);
+        final GreptimeDBTableInstaller.InstallInfo info =
+            installer.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent());
         assertTrue(info.isAllExist(), "Existing table should return true");
     }
 }

@@ -26,9 +26,9 @@ import org.apache.skywalking.oap.server.core.storage.StorageBuilderFactory;
 import org.apache.skywalking.oap.server.core.storage.StorageDAO;
 import org.apache.skywalking.oap.server.core.storage.StorageModule;
 import org.apache.skywalking.oap.server.core.storage.cache.INetworkAddressAliasDAO;
-import org.apache.skywalking.oap.server.core.storage.management.UIMenuManagementDAO;
 import org.apache.skywalking.oap.server.core.storage.management.UITemplateManagementDAO;
-import org.apache.skywalking.oap.server.core.storage.model.ModelCreator;
+import org.apache.skywalking.oap.server.core.storage.model.ModelInstaller;
+import org.apache.skywalking.oap.server.core.storage.model.ModelRegistry;
 import org.apache.skywalking.oap.server.core.storage.profiling.asyncprofiler.IAsyncProfilerTaskLogQueryDAO;
 import org.apache.skywalking.oap.server.core.storage.profiling.asyncprofiler.IAsyncProfilerTaskQueryDAO;
 import org.apache.skywalking.oap.server.core.storage.profiling.asyncprofiler.IJFRDataQueryDAO;
@@ -95,7 +95,6 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDB
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTopologyQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTTLStatusQuery;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTraceQueryDAO;
-import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBUIMenuManagementDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBUITemplateManagementDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBZipkinQueryDAO;
 
@@ -140,6 +139,9 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
         // StorageBuilderFactory: use default
         this.registerServiceImplementation(StorageBuilderFactory.class, new StorageBuilderFactory.Default());
 
+        // Expose the installer so core drives table creation and the runtime-rule reconciler can call isExists()
+        this.registerServiceImplementation(ModelInstaller.class, tableInstaller);
+
         // Batch & Storage DAO
         this.registerServiceImplementation(IBatchDAO.class, new GreptimeDBBatchDAO(client));
         this.registerServiceImplementation(StorageDAO.class, new GreptimeDBStorageDAO(client, schemaRegistry));
@@ -171,7 +173,6 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
 
         // Management
         this.registerServiceImplementation(UITemplateManagementDAO.class, new GreptimeDBUITemplateManagementDAO(client));
-        this.registerServiceImplementation(UIMenuManagementDAO.class, new GreptimeDBUIMenuManagementDAO(client));
 
         // Profiling - trace
         this.registerServiceImplementation(IProfileTaskQueryDAO.class, new GreptimeDBProfileTaskQueryDAO(client));
@@ -200,11 +201,12 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
     public void start() throws ServiceNotProvidedException, ModuleStartException {
         try {
             client.connect();
+            tableInstaller.start();
 
-            final ModelCreator modelCreator = getManager().find(CoreModule.NAME)
-                                                          .provider()
-                                                          .getService(ModelCreator.class);
-            modelCreator.addModelListener(tableInstaller);
+            getManager().find(CoreModule.NAME)
+                        .provider()
+                        .getService(ModelRegistry.class)
+                        .addModelListener(tableInstaller);
         } catch (Exception e) {
             throw new ModuleStartException("Failed to connect to GreptimeDB", e);
         }

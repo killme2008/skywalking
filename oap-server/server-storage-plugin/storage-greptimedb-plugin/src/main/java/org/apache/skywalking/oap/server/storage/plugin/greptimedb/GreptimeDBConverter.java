@@ -29,8 +29,10 @@ import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
+import org.apache.skywalking.oap.server.core.analysis.Layer;
 import org.apache.skywalking.oap.server.core.analysis.TimeBucket;
 import org.apache.skywalking.oap.server.core.analysis.metrics.DataTable;
+import org.apache.skywalking.oap.server.core.profiling.trace.ProfileLanguageType;
 import org.apache.skywalking.oap.server.core.query.enumeration.Step;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
@@ -64,7 +66,10 @@ public final class GreptimeDBConverter {
 
         if (String.class.equals(type)) {
             return "STRING";
-        } else if (int.class.equals(type) || Integer.class.equals(type)) {
+        } else if (int.class.equals(type) || Integer.class.equals(type)
+            || Layer.class.equals(type) || ProfileLanguageType.class.equals(type)) {
+            // Layer / ProfileLanguageType are classes (not enums) stored as their int value() —
+            // mirror the JDBC installer, which lists them explicitly alongside int/Integer.
             return "INT";
         } else if (long.class.equals(type) || Long.class.equals(type)) {
             return "BIGINT";
@@ -94,7 +99,9 @@ public final class GreptimeDBConverter {
 
         if (String.class.equals(type)) {
             return DataType.String;
-        } else if (int.class.equals(type) || Integer.class.equals(type)) {
+        } else if (int.class.equals(type) || Integer.class.equals(type)
+            || Layer.class.equals(type) || ProfileLanguageType.class.equals(type)) {
+            // Layer / ProfileLanguageType are classes (not enums) stored as their int value().
             return DataType.Int32;
         } else if (long.class.equals(type) || Long.class.equals(type)) {
             return DataType.Int64;
@@ -359,7 +366,9 @@ public final class GreptimeDBConverter {
             final Class<?> type = col.getType();
             if (byte[].class.equals(type)) {
                 map.put(colName, rs.getBytes(colName));
-            } else if (int.class.equals(type) || Integer.class.equals(type)) {
+            } else if (int.class.equals(type) || Integer.class.equals(type)
+                || Layer.class.equals(type) || ProfileLanguageType.class.equals(type)) {
+                // Layer / ProfileLanguageType are stored as their int value().
                 map.put(colName, rs.getInt(colName));
             } else if (long.class.equals(type) || Long.class.equals(type)) {
                 map.put(colName, rs.getLong(colName));

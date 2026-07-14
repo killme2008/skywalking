@@ -23,12 +23,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.storage.StorageException;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.model.ModelInstaller;
+import org.apache.skywalking.oap.server.core.storage.model.StorageManipulationOpt;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 
 @Slf4j
@@ -43,17 +46,79 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
     }
 
     @Override
-    public InstallInfo isExists(final Model model) throws StorageException {
+    public InstallInfo isExists(final Model model, final StorageManipulationOpt opt) throws StorageException {
         final String tableName = GreptimeDBConverter.resolveTableName(model);
         final GreptimeDBInstallInfo info = new GreptimeDBInstallInfo(model);
-        try (Connection conn = ((GreptimeDBStorageClient) client).getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SHOW TABLES LIKE '" + tableName + "'")) {
-            info.setAllExist(rs.next());
+        try (Connection conn = ((GreptimeDBStorageClient) client).getConnection()) {
+            if (!tableExists(conn, tableName)) {
+                info.setAllExist(false);
+                opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.MISSING, "table not found");
+                return info;
+            }
+
+            // Table exists. Diff by column-name presence (matches the JDBC installer, which does not
+            // compare types). A model that gained @Columns since the table was created shows up as
+            // missing columns here; how we reconcile depends on the caller's schema-change intent.
+            final Set<String> existing = describeColumns(conn, tableName);
+            final List<String> missing = new ArrayList<>();
+            for (final ModelColumn col : model.getColumns()) {
+                final String colName = col.getColumnName().getStorageName();
+                if (!existing.contains(colName)) {
+                    missing.add(colName);
+                }
+            }
+
+            // The table is present regardless, so keep allExist=true: createTable is
+            // CREATE TABLE IF NOT EXISTS and would be a no-op. Column reconciliation happens here.
+            info.setAllExist(true);
+            if (missing.isEmpty()) {
+                opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.EXISTING_MATCHED, null);
+            } else if (opt.isWithSchemaChange()) {
+                addMissingColumns(conn, model, tableName, missing);
+                opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.UPDATED,
+                    "added columns: " + String.join(", ", missing));
+            } else {
+                opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.SKIPPED_SHAPE_MISMATCH,
+                    "missing columns: " + String.join(", ", missing));
+            }
         } catch (SQLException e) {
             throw new StorageException("Failed to check table existence: " + tableName, e);
         }
         return info;
+    }
+
+    private boolean tableExists(final Connection conn, final String tableName) throws SQLException {
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("SHOW TABLES LIKE '" + tableName + "'")) {
+            return rs.next();
+        }
+    }
+
+    private Set<String> describeColumns(final Connection conn, final String tableName) throws SQLException {
+        final Set<String> columns = new HashSet<>();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("DESC " + tableName)) {
+            while (rs.next()) {
+                columns.add(rs.getString("Column"));
+            }
+        }
+        return columns;
+    }
+
+    private void addMissingColumns(final Connection conn, final Model model, final String tableName,
+                                   final List<String> missing) throws SQLException {
+        for (final ModelColumn col : model.getColumns()) {
+            final String colName = col.getColumnName().getStorageName();
+            if (!missing.contains(colName)) {
+                continue;
+            }
+            final String ddl = "ALTER TABLE " + tableName + " ADD COLUMN "
+                + GreptimeDBConverter.quoteColumn(colName) + " " + GreptimeDBConverter.mapToSqlType(col);
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute(ddl);
+            }
+            log.info("Added column {} to GreptimeDB table {}", colName, tableName);
+        }
     }
 
     @Override
