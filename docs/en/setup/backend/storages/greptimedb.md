@@ -53,7 +53,7 @@ storage:
     recordsTTL: ${SW_STORAGE_GREPTIMEDB_RECORDS_TTL:3d}
     maxJdbcPoolSize: ${SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE:10}
     metadataQueryMaxSize: ${SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE:5000}
-    primaryKeyTags: ${SW_STORAGE_GREPTIMEDB_PRIMARY_KEY_TAGS:http.method,status_code}
+    primaryKeyTags: ${SW_STORAGE_GREPTIMEDB_PRIMARY_KEY_TAGS:http.method,http.status_code}
 ```
 
 ### Configuration Properties
@@ -70,7 +70,7 @@ storage:
 | `recordsTTL` | `SW_STORAGE_GREPTIMEDB_RECORDS_TTL` | `3d` | TTL for records (traces, logs, alarms). |
 | `maxJdbcPoolSize` | `SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE` | `10` | Max JDBC connection pool size. |
 | `metadataQueryMaxSize` | `SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE` | `5000` | Max rows for metadata queries (services, instances, endpoints). |
-| `primaryKeyTags` | `SW_STORAGE_GREPTIMEDB_PRIMARY_KEY_TAGS` | `http.method,status_code` | Subset of the searchable tag keys promoted into a record table's PRIMARY KEY. Must be low cardinality; the remaining searchable tags become inverted-indexed field columns. |
+| `primaryKeyTags` | `SW_STORAGE_GREPTIMEDB_PRIMARY_KEY_TAGS` | `http.method,http.status_code` | Subset of the searchable tag keys promoted into a record table's PRIMARY KEY. Must be low cardinality; the remaining searchable tags become inverted-indexed field columns. Keys must match the `searchableTracesTags`/`searchableLogsTags`/`searchableAlarmTags` whitelists exactly — a key outside those whitelists is ignored. |
 
 Searchable trace/log/alarm tags (the `searchableTracesTags` / `searchableLogsTags` / `searchableAlarmTags` core config) are stored as per-key indexed columns rather than a JSON blob, so tag filters push down. Keys listed in `primaryKeyTags` join the table's PRIMARY KEY; the rest become inverted-indexed fields.
 

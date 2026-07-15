@@ -17,7 +17,7 @@ version: '3.8'
 
 services:
   greptimedb:
-    image: greptime/greptimedb:v1.0.0-rc.1
+    image: greptime/greptimedb:v1.1.2
     container_name: greptimedb
     ports:
       - "4000:4000"

@@ -93,8 +93,8 @@ WHERE greptime_ts >= ? AND greptime_ts <= ?
 ```
 
 - The column name is the tag key verbatim — GreptimeDB accepts dotted, back-quoted identifiers, so no `.`→`_` mapping and no collision handling is needed.
-- The `primaryKeyTags` config (a subset of the whitelist, default `http.method,status_code`) marks the high-frequency keys that join the PRIMARY KEY (low cardinality → row-group pruning). The remaining whitelist tags become field columns with an INVERTED INDEX added at table-creation time.
-- The whitelist is watched at runtime. Keys added after table creation are appended via `ALTER TABLE ADD COLUMN` as plain fields — `ALTER` cannot attach an INVERTED INDEX, so such keys are queryable but unindexed until the table is rebuilt.
+- The `primaryKeyTags` config (a subset of the whitelist, default `http.method,http.status_code`) marks the high-frequency keys that join the PRIMARY KEY (low cardinality → row-group pruning). The remaining whitelist tags become field columns with an INVERTED INDEX added at table-creation time.
+- The whitelist is watched at runtime. A field tag whitelisted after table creation is appended via `ALTER TABLE ADD COLUMN` and then gets its INVERTED INDEX via `ALTER TABLE MODIFY COLUMN ... SET INVERTED INDEX`, so it is indexed, not merely queryable. A key newly promoted into `primaryKeyTags`, however, only lands as a plain column — GreptimeDB cannot change an existing table's PRIMARY KEY, so the table must be rebuilt to apply the new primary-key tag.
 - Writes split each `k=v` in `tags`; whitelist keys populate their columns, everything else stays in `dataBinary` (full payload, unsearchable). Reads validate the tag key against the whitelist first (a non-searchable key forces an empty result), mirroring the JDBC/ES plugins.
 - Scope: trace (`segment`), log, alarm. Zipkin (annotation → `query` FULLTEXT column) and tag auto-completion (its own `*_tag_autocomplete` table) are unaffected.
 
@@ -113,7 +113,7 @@ All 40+ DAO interfaces required by `StorageModule` are implemented, covering:
 
 ### Testing
 
-A full E2E test case at `test/e2e-v2/cases/storage/greptimedb/` using the shared `storage-cases.yaml` verification suite. Tested against GreptimeDB v1.0.0-rc.1. Unit tests cover type conversion, DDL generation, schema registry, and query helper logic (94 tests total).
+A full E2E test case at `test/e2e-v2/cases/storage/greptimedb/` using the shared `storage-cases.yaml` verification suite. Tested against GreptimeDB v1.1.2. Unit tests cover type conversion, DDL generation, schema registry, and query helper logic (94 tests total).
 
 For step-by-step instructions on running unit tests, E2E tests, and a quick-start demo, see [`TESTING.md`](https://github.com/killme2008/skywalking/blob/feature/greptimedb-plugin/oap-server/server-storage-plugin/storage-greptimedb-plugin/TESTING.md).
 
@@ -144,7 +144,7 @@ GreptimeDB can run in standalone or cluster mode. For a quick start:
 
 ```bash
 docker run -p 4000:4000 -p 4001:4001 -p 4002:4002 \
-  greptime/greptimedb:v1.0.0-rc.1 standalone start \
+  greptime/greptimedb:v1.1.2 standalone start \
   --http-addr=0.0.0.0:4000 \
   --rpc-bind-addr=0.0.0.0:4001 \
   --mysql-addr=0.0.0.0:4002
@@ -180,5 +180,4 @@ GreptimeDB documentation for concepts mentioned in this proposal:
 - [Storage Location](https://docs.greptime.com/user-guide/concepts/storage-location) — local disk, S3, Azure Blob Storage, etc.
 - [Java Ingester SDK](https://docs.greptime.com/user-guide/ingest-data/for-iot/grpc-sdks/java) — gRPC write path, StreamWriter API
 - [MySQL Protocol](https://docs.greptime.com/user-guide/protocols/mysql) — wire protocol compatibility used by the read path
-- [JSON Functions](https://docs.greptime.com/reference/sql/functions/json/) — JSON column operations; `json_path_match()` used for tag filtering ([added in v0.10.2](https://github.com/GreptimeTeam/greptimedb/pull/4864))
 - [TTL (Time-To-Live)](https://docs.greptime.com/user-guide/manage-data/overview#manage-data-retention-with-ttl-policies) — per-table data expiration

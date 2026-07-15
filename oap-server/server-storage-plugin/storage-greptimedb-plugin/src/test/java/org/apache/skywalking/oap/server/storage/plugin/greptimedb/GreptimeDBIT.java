@@ -24,10 +24,12 @@ import io.greptime.models.Result;
 import io.greptime.models.Table;
 import io.greptime.models.WriteOk;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -108,7 +110,7 @@ class GreptimeDBIT {
         config.setRecordsTTL("3d");
 
         final ModuleManager moduleManager = TestModels.mockModuleManager(
-            Set.of("http.method", "status_code", "db.type"), "", "");
+            Set.of("http.method", "http.status_code", "db.type"), "", "");
         tagColumns = new GreptimeDBSearchableTagColumns(moduleManager, config);
         client = new GreptimeDBStorageClient(config);
         client.connect();
@@ -269,6 +271,53 @@ class GreptimeDBIT {
         final GreptimeDBTableInstaller.InstallInfo info =
             installer.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent());
         assertTrue(info.isAllExist(), "Existing table should return true");
+    }
+
+    @Test
+    void reconcilesMissingInvertedIndexOnExistingFieldTagColumn() throws Exception {
+        final Model model = TestModels.sampleRecordModel();
+        installer.createTable(model);
+        final String table = GreptimeDBConverter.resolveTableName(model);
+
+        // db.type is a non-PK searchable field tag, so createTable gives it an INVERTED INDEX.
+        assertTrue(invertedIndexedColumns(table).contains("db.type"),
+            "field tag should be inverted-indexed at creation");
+
+        // Simulate a table built by an earlier plain-column version, or an ADD COLUMN whose
+        // SET INVERTED INDEX never ran: strip the index so only the plain column remains.
+        execSql("ALTER TABLE " + table + " MODIFY COLUMN `db.type` UNSET INVERTED INDEX");
+        assertFalse(invertedIndexedColumns(table).contains("db.type"),
+            "index should be stripped for the test setup");
+
+        // Reconciliation keys off index state, not column presence, so it restores the index
+        // instead of reporting the column as already matched.
+        installer.isExists(model, StorageManipulationOpt.withSchemaChange());
+        assertTrue(invertedIndexedColumns(table).contains("db.type"),
+            "reconciliation should restore the missing inverted index");
+    }
+
+    private void execSql(final String sql) throws Exception {
+        try (Connection conn = client.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute(sql);
+        }
+    }
+
+    private Set<String> invertedIndexedColumns(final String tableName) throws Exception {
+        final Set<String> columns = new HashSet<>();
+        try (Connection conn = client.getConnection();
+             PreparedStatement ps = conn.prepareStatement(
+                 "SELECT column_name FROM information_schema.statistics "
+                     + "WHERE table_schema = ? AND table_name = ? AND greptime_index_type = 'INVERTED'")) {
+            ps.setString(1, config.getDatabase());
+            ps.setString(2, tableName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    columns.add(rs.getString(1));
+                }
+            }
+        }
+        return columns;
     }
 
     // ---- management/config tables must upsert in place, not append versioned rows ----

@@ -81,5 +81,5 @@ public class GreptimeDBStorageConfig extends ModuleConfig {
      * become plain field columns with an inverted index. Keys outside the searchable whitelists are
      * ignored here.
      */
-    private String primaryKeyTags = "http.method,status_code";
+    private String primaryKeyTags = "http.method,http.status_code";
 }

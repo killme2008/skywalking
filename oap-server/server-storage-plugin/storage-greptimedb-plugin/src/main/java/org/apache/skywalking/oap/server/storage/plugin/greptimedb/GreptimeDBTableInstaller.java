@@ -91,16 +91,24 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
                 }
             }
 
-            // Searchable tag columns whitelisted after the table was created. Field tags get their
-            // INVERTED INDEX back via ALTER (see addMissingTagColumns); a tag newly promoted into
-            // primaryKeyTags cannot join an existing table's PRIMARY KEY and only lands as a plain
-            // column until the table is rebuilt. Tags whitelisted before creation keep their PK/index
-            // from createTable.
+            // Reconcile searchable tag columns against the current whitelist. A missing column is added
+            // (field tags with their INVERTED INDEX, PK tags as plain columns with a warning — an existing
+            // table's PRIMARY KEY cannot be altered). A field tag whose column already exists but has no
+            // INVERTED INDEX is re-indexed: this covers a prior ADD that never got its index (partial
+            // failure) and tables built by an earlier plain-column version. Index state is read from
+            // information_schema.statistics, not inferred from column presence, so the reconciliation is
+            // idempotent — otherwise an unindexed column would look "matched" forever.
             final List<TagColumn> missingTags = new ArrayList<>();
+            final List<TagColumn> unindexedFieldTags = new ArrayList<>();
             if (expandTags) {
-                for (final TagColumn tag : tagColumns.resolve(model)) {
+                final List<TagColumn> resolved = tagColumns.resolve(model);
+                final Set<String> invertedIndexed = resolved.isEmpty()
+                    ? Collections.emptySet() : invertedIndexedColumns(conn, tableName);
+                for (final TagColumn tag : resolved) {
                     if (!existing.contains(tag.getKey())) {
                         missingTags.add(tag);
+                    } else if (!tag.isPrimaryKey() && !invertedIndexed.contains(tag.getKey())) {
+                        unindexedFieldTags.add(tag);
                     }
                 }
             }
@@ -108,20 +116,24 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
             // The table is present regardless, so keep allExist=true: createTable is
             // CREATE TABLE IF NOT EXISTS and would be a no-op. Column reconciliation happens here.
             info.setAllExist(true);
-            final List<String> allMissing = new ArrayList<>(missing);
+            final List<String> changes = new ArrayList<>(missing);
             for (final TagColumn tag : missingTags) {
-                allMissing.add(tag.getKey());
+                changes.add(tag.getKey());
             }
-            if (allMissing.isEmpty()) {
+            for (final TagColumn tag : unindexedFieldTags) {
+                changes.add(tag.getKey() + " (index)");
+            }
+            if (changes.isEmpty()) {
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.EXISTING_MATCHED, null);
             } else if (opt.isWithSchemaChange()) {
                 addMissingColumns(conn, model, tableName, missing);
                 addMissingTagColumns(conn, tableName, missingTags);
+                addMissingTagIndexes(conn, tableName, unindexedFieldTags);
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.UPDATED,
-                    "added columns: " + String.join(", ", allMissing));
+                    "reconciled: " + String.join(", ", changes));
             } else {
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.SKIPPED_SHAPE_MISMATCH,
-                    "missing columns: " + String.join(", ", allMissing));
+                    "missing: " + String.join(", ", changes));
             }
         } catch (SQLException e) {
             throw new StorageException("Failed to check table existence: " + tableName, e);
@@ -196,12 +208,54 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
             } else {
                 // Field tags carry an INVERTED INDEX at create time; reproduce it so a late-whitelisted
                 // tag is indexed, not merely queryable via full scan.
-                try (Statement stmt = conn.createStatement()) {
-                    stmt.execute("ALTER TABLE " + tableName + " MODIFY COLUMN " + quoted + " SET INVERTED INDEX");
-                }
+                setInvertedIndex(conn, tableName, key);
             }
             log.info("Added searchable tag column {} to GreptimeDB table {}", key, tableName);
         }
+    }
+
+    private void addMissingTagIndexes(final Connection conn, final String tableName,
+                                      final List<TagColumn> tags) throws SQLException {
+        for (final TagColumn tag : tags) {
+            setInvertedIndex(conn, tableName, tag.getKey());
+            log.info("Added missing INVERTED INDEX to searchable tag column {} on GreptimeDB table {}",
+                tag.getKey(), tableName);
+        }
+    }
+
+    private void setInvertedIndex(final Connection conn, final String tableName,
+                                  final String key) throws SQLException {
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("ALTER TABLE " + tableName + " MODIFY COLUMN "
+                + GreptimeDBConverter.quoteColumn(key) + " SET INVERTED INDEX");
+        }
+    }
+
+    /**
+     * Columns of the table that currently carry an INVERTED INDEX, read from
+     * {@code information_schema.statistics} (GreptimeDB reports the index kind in
+     * {@code greptime_index_type}). Used to decide whether a searchable field tag still needs its index.
+     *
+     * @param conn      an open JDBC connection.
+     * @param tableName the table to inspect.
+     * @return the set of column names that have an inverted index.
+     * @throws SQLException if the metadata query fails.
+     */
+    private Set<String> invertedIndexedColumns(final Connection conn,
+                                               final String tableName) throws SQLException {
+        final Set<String> columns = new HashSet<>();
+        try (PreparedStatement ps = conn.prepareStatement(
+                "SELECT column_name FROM information_schema.statistics "
+                    + "WHERE table_schema = ? AND table_name = ? AND greptime_index_type = 'INVERTED'")) {
+            ps.setString(1, config.getDatabase());
+            ps.setString(2, tableName);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    columns.add(rs.getString(1));
+                }
+            }
+        }
+        return columns;
     }
 
     @Override

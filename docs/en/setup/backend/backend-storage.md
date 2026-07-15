@@ -43,4 +43,4 @@ due to its high requirement for memory and replication requirement to keep clust
 
 GreptimeDB is an open-source, cloud-native time-series database. The SkyWalking GreptimeDB storage plugin uses a dual-protocol
 architecture: gRPC for high-throughput writes and MySQL protocol (JDBC) for queries. It leverages GreptimeDB's native TTL,
-`merge_mode` for metrics upsert, and `append_mode` for records. Tags are stored as JSON columns to eliminate separate tag tables.
+`merge_mode` for metrics upsert, and `append_mode` for records. Searchable tags are stored as per-key indexed columns to eliminate separate tag tables and JOINs.

@@ -293,6 +293,14 @@ jobs:
           # (see test/e2e-v2/cases/runtime-rule/ and test/e2e-v2/cases/banyandb).
           ./mvnw -B clean integration-test -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow || \
           ./mvnw -B clean integration-test -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow
+      - name: GreptimeDB storage integration test (gated)
+        # The step above swallows IT failures (project-wide failsafe binds only integration-test, not
+        # verify). Re-run just the GreptimeDB module through `verify`, where this module's pom binds
+        # failsafe:verify, so GreptimeDBIT failures actually fail the build. `-am` builds the parent
+        # poms so the ${revision} version resolves for a single-module run.
+        run: |
+          ./mvnw -B clean verify -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
+            -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip
 
   # Slow tests
   slow-integration-test:
