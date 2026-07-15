@@ -61,6 +61,7 @@ jobs:
   dependency-license:
     if: |
       ( always() && ! cancelled() ) &&
+      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.pom == 'true')
     name: Dependency licenses
     needs: [changes]
@@ -306,6 +307,7 @@ jobs:
   slow-integration-test:
     if: |
       ( always() && ! cancelled() ) &&
+      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
     name: Slow Integration Tests
     needs: [sanity-check, changes]
@@ -339,6 +341,7 @@ jobs:
   e2e-test:
     if: |
       ( always() && ! cancelled() ) &&
+      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
     name: ${{ matrix.test.name }}
     needs: [docker, dist-tar]
@@ -838,6 +841,7 @@ jobs:
   e2e-test-istio:
     if: |
       ( always() && ! cancelled() ) &&
+      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
     name: Istio ALS
     needs: [docker]
@@ -916,6 +920,7 @@ jobs:
   e2e-test-istio-ambient:
     if: |
       ( always() && ! cancelled() ) &&
+      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
     name: Istio Ambient ALS
     needs: [docker]
@@ -988,6 +993,7 @@ jobs:
   e2e-test-java-versions:
     if: |
       ( always() && ! cancelled() ) &&
+      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
     name: Java ${{ matrix.java-version }}
     needs: [docker]
@@ -1038,6 +1044,7 @@ jobs:
   e2e-test-banyandb-stages:
     if: |
       ( always() && ! cancelled() ) &&
+      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
     name: ${{ matrix.test.name }}
     needs: [docker, dist-tar]
@@ -1156,6 +1163,76 @@ jobs:
           path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
           overwrite: true
 
+  # GreptimeDB storage e2e. The full e2e-test matrix is gated to apache/skywalking (see its `if`);
+  # this single-case job is the fork's storage-plugin gate and also runs upstream.
+  e2e-test-greptimedb:
+    if: |
+      ( always() && ! cancelled() ) &&
+      ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
+    name: Storage GreptimeDB
+    needs: [docker, dist-tar, changes]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+          persist-credentials: false
+      - run: grep -v '^#' test/e2e-v2/script/env >> "$GITHUB_ENV"
+      - uses: apache/skywalking-cli/actions/setup@master
+        with:
+          version: ${{ env.SW_CTL_COMMIT }}
+      - uses: actions/download-artifact@v4
+        name: Download docker images
+        with:
+          name: docker-images-25
+          path: docker-images
+      - name: Load docker images
+        run: |
+          find docker-images -name "*.tar" -exec docker load -i {} \;
+          find docker-images -name "*.tar" -exec rm {} \;
+      - uses: actions/download-artifact@v4
+        name: Download distribution tar
+        with:
+          name: dist
+          path: dist
+      - name: Login to ghcr
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cache maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('test/e2e-v2/java-test-service/**/pom.xml') }}
+          restore-keys: ${{ runner.os }}-maven-
+      - name: Prepare test services
+        shell: bash
+        run: ./mvnw -B -q -f test/e2e-v2/java-test-service/pom.xml clean flatten:flatten package
+      - name: Storage GreptimeDB
+        uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
+        with:
+          e2e-file: $GITHUB_WORKSPACE/test/e2e-v2/cases/storage/greptimedb/e2e.yaml
+      - name: Dump container logs
+        if: ${{ failure() || cancelled() }}
+        run: |
+          LOG_DIR="${{ env.SW_INFRA_E2E_LOG_DIR }}"
+          mkdir -p "$LOG_DIR"
+          docker ps -a > "$LOG_DIR/docker-ps.txt" 2>&1 || true
+          for c in $(docker ps -aq); do
+            name=$(docker inspect -f '{{.Name}}' "$c" | tr -d '/')
+            docker logs "$c" > "$LOG_DIR/$name.log" 2>&1 || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: ${{ failure() || cancelled() }}
+        name: Upload Logs
+        with:
+          name: test-logs-greptimedb
+          path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
+          overwrite: true
+
   required:
     if: always()
     name: Required
@@ -1168,6 +1245,7 @@ jobs:
       - e2e-test-istio
       - e2e-test-istio-ambient
       - e2e-test-java-versions
+      - e2e-test-greptimedb
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -1176,9 +1254,10 @@ jobs:
         # if all of them are working as expected then naturally exits else return error code
         run: |
           execute=${{ needs.changes.outputs.oap }}
-
-          sanityResults=${{ needs.dependency-license.result }}
-          [[ ${sanityResults} == 'success' ]] || [[ ${execute} != 'true' && ${sanityResults} == 'skipped' ]] || exit -1;
+          # On a fork the heavy suites (dependency-license, slow-IT, full e2e matrix, istio, java-versions)
+          # are gated to apache/skywalking and come back 'skipped'; accept that here. unit/integration and
+          # the GreptimeDB storage e2e still run on the fork and must succeed.
+          isFork=${{ github.repository != 'apache/skywalking' }}
 
           depLicenseResults=${{ needs.dependency-license.result }}
           unitResults=${{ needs.unit-test.result }};
@@ -1188,14 +1267,16 @@ jobs:
           e2eIstioResults=${{ needs.e2e-test-istio.result }};
           e2eIstioAmbientResults=${{ needs.e2e-test-istio-ambient.result }};
           e2eJavaVersionResults=${{ needs.e2e-test-java-versions.result }};
+          e2eGreptimeResults=${{ needs.e2e-test-greptimedb.result }};
 
-          [[ ${depLicenseResults} == 'success' ]] || [[ ${execute} != 'true' && ${depLicenseResults} == 'skipped' ]] || exit -2;
+          [[ ${depLicenseResults} == 'success' ]] || [[ ( ${execute} != 'true' || ${isFork} == 'true' ) && ${depLicenseResults} == 'skipped' ]] || exit -2;
           [[ ${unitResults} == 'success' ]] || [[ ${execute} != 'true' && ${unitResults} == 'skipped' ]] || exit -3;
           [[ ${integrationResults} == 'success' ]] || [[ ${execute} != 'true' && ${integrationResults} == 'skipped' ]] || exit -4;
-          [[ ${e2eResults} == 'success' ]] || [[ ${execute} != 'true' && ${e2eResults} == 'skipped' ]] || exit -5;
-          [[ ${e2eIstioResults} == 'success' ]] || [[ ${execute} != 'true' && ${e2eIstioResults} == 'skipped' ]] || exit -6;
-          [[ ${e2eIstioAmbientResults} == 'success' ]] || [[ ${execute} != 'true' && ${e2eIstioAmbientResults} == 'skipped' ]] || exit -6;
-          [[ ${e2eJavaVersionResults} == 'success' ]] || [[ ${execute} != 'true' && ${e2eJavaVersionResults} == 'skipped' ]] || exit -7;
-          [[ ${timeConsumingITResults} == 'success' ]] || [[ ${execute} != 'true' && ${timeConsumingITResults} == 'skipped' ]] || exit -8;
+          [[ ${e2eResults} == 'success' ]] || [[ ( ${execute} != 'true' || ${isFork} == 'true' ) && ${e2eResults} == 'skipped' ]] || exit -5;
+          [[ ${e2eIstioResults} == 'success' ]] || [[ ( ${execute} != 'true' || ${isFork} == 'true' ) && ${e2eIstioResults} == 'skipped' ]] || exit -6;
+          [[ ${e2eIstioAmbientResults} == 'success' ]] || [[ ( ${execute} != 'true' || ${isFork} == 'true' ) && ${e2eIstioAmbientResults} == 'skipped' ]] || exit -6;
+          [[ ${e2eJavaVersionResults} == 'success' ]] || [[ ( ${execute} != 'true' || ${isFork} == 'true' ) && ${e2eJavaVersionResults} == 'skipped' ]] || exit -7;
+          [[ ${timeConsumingITResults} == 'success' ]] || [[ ( ${execute} != 'true' || ${isFork} == 'true' ) && ${timeConsumingITResults} == 'skipped' ]] || exit -8;
+          [[ ${e2eGreptimeResults} == 'success' ]] || [[ ${execute} != 'true' && ${e2eGreptimeResults} == 'skipped' ]] || exit -9;
 
           exit 0;

@@ -247,7 +247,7 @@ public final class GreptimeDBConverter {
 
     /**
      * Convert a List of "key=value" tag strings to a JSON object string.
-     * Example: ["http.method=GET", "http.status_code=200"] -> {"http.method":"GET","http.status_code":"200"}
+     * Example: ["http.method=GET", "http.status_code=200"] -&gt; {"http.method":"GET","http.status_code":"200"}
      */
     public static String tagsToJson(final List<String> tags) {
         if (CollectionUtils.isEmpty(tags)) {
@@ -283,7 +283,7 @@ public final class GreptimeDBConverter {
     }
 
     /**
-     * Build an ordered column map (name -> value) from a storage map using the Model's column order.
+     * Build an ordered column map (name -&gt; value) from a storage map using the Model's column order.
      * Adds the greptime_ts timestamp column at the end.
      */
     public static LinkedHashMap<String, Object> buildOrderedRow(
