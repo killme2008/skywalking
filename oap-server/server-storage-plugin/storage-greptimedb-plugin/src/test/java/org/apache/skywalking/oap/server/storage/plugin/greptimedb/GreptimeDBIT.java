@@ -308,7 +308,7 @@ class GreptimeDBIT {
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(
                  "SELECT column_name FROM information_schema.statistics "
-                     + "WHERE table_schema = ? AND table_name = ? AND greptime_index_type = 'INVERTED'")) {
+                     + "WHERE table_schema = ? AND table_name = ? AND index_type = 'INVERTED'")) {
             ps.setString(1, config.getDatabase());
             ps.setString(2, tableName);
             try (ResultSet rs = ps.executeQuery()) {

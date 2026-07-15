@@ -233,8 +233,10 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
 
     /**
      * Columns of the table that currently carry an INVERTED INDEX, read from
-     * {@code information_schema.statistics} (GreptimeDB reports the index kind in
-     * {@code greptime_index_type}). Used to decide whether a searchable field tag still needs its index.
+     * {@code information_schema.statistics}. GreptimeDB reports the MySQL-style kind in the
+     * {@code index_type} column as {@code 'INVERTED'} (the {@code greptime_index_type} column instead
+     * carries the lowercase {@code 'inverted'}). Used to decide whether a searchable field tag still
+     * needs its index.
      *
      * @param conn      an open JDBC connection.
      * @param tableName the table to inspect.
@@ -246,7 +248,7 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
         final Set<String> columns = new HashSet<>();
         try (PreparedStatement ps = conn.prepareStatement(
                 "SELECT column_name FROM information_schema.statistics "
-                    + "WHERE table_schema = ? AND table_name = ? AND greptime_index_type = 'INVERTED'")) {
+                    + "WHERE table_schema = ? AND table_name = ? AND index_type = 'INVERTED'")) {
             ps.setString(1, config.getDatabase());
             ps.setString(2, tableName);
             try (ResultSet rs = ps.executeQuery()) {
