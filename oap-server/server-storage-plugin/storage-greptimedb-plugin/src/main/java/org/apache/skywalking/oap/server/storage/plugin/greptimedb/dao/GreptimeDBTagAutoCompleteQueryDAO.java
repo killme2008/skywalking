@@ -83,7 +83,9 @@ public class GreptimeDBTagAutoCompleteQueryDAO implements ITagAutoCompleteQueryD
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
 
-        sql.append("select ").append(TagAutocompleteData.TAG_VALUE)
+        // DISTINCT so time-bucketed duplicate rows of the same value do not starve the LIMIT
+        // (each value is stored once per day bucket; a multi-day duration yields repeats).
+        sql.append("select distinct ").append(TagAutocompleteData.TAG_VALUE)
            .append(" from ").append(GreptimeDBConverter.resolveTrafficTableName(TagAutocompleteData.INDEX_NAME))
            .append(" where ").append(TagAutocompleteData.TAG_KEY).append(" = ?");
         params.add(tagKey);

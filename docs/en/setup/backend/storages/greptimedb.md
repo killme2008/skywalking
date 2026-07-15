@@ -74,7 +74,7 @@ storage:
 
 Searchable trace/log/alarm tags (the `searchableTracesTags` / `searchableLogsTags` / `searchableAlarmTags` core config) are stored as per-key indexed columns rather than a JSON blob, so tag filters push down. Keys listed in `primaryKeyTags` join the table's PRIMARY KEY; the rest become inverted-indexed fields.
 
-The searchable-tag list is fixed when OAP installs the GreptimeDB schema. Restart OAP after changing these settings so the installer can reconcile new columns before queries use them. Searchable tag names must not collide with model columns or the reserved `id` and `greptime_ts` columns.
+The searchable-tag list is fixed when OAP installs the GreptimeDB schema. Restart OAP after changing these settings so the installer can add the new columns before queries use them: a newly whitelisted field tag is added with its inverted index (`ALTER TABLE ... MODIFY COLUMN ... SET INVERTED INDEX`), so it is indexed, not merely queryable. A tag newly added to `primaryKeyTags`, however, only lands as a plain column on an existing table — GreptimeDB cannot change an existing table's PRIMARY KEY, so recreate the table to apply a new primary-key tag. Searchable tag names must not collide with model columns or the reserved `id` and `greptime_ts` columns.
 
 Management data (UI templates and continuous-profiling policies) is stored with `ttl = 'forever'` and never expires, so there is no TTL to configure for it.
 
@@ -114,5 +114,5 @@ For production cluster deployment, refer to the [GreptimeDB documentation](https
 
 ### Known Limitations
 
-- **Dynamic searchable-tag updates**: Changes take effect after an OAP restart because they require GreptimeDB schema reconciliation.
+- **Dynamic searchable-tag updates**: Changes take effect after an OAP restart. New field tags are added to existing tables with an inverted index, but a new `primaryKeyTags` entry does not change an existing table's PRIMARY KEY — recreate the table to apply it.
 - **FULLTEXT search**: Log content FULLTEXT search uses English analyzer by default.

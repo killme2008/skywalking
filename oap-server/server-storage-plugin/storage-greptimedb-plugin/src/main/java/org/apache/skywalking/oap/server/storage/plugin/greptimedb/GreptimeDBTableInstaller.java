@@ -91,14 +91,16 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
                 }
             }
 
-            // Searchable tag columns whitelisted after the table was created: ALTER can only add them as
-            // plain fields (no INVERTED INDEX / PRIMARY KEY), so they are queryable but unindexed until
-            // the table is rebuilt. Tags whitelisted before creation keep their PK/index from createTable.
-            final List<String> missingTags = new ArrayList<>();
+            // Searchable tag columns whitelisted after the table was created. Field tags get their
+            // INVERTED INDEX back via ALTER (see addMissingTagColumns); a tag newly promoted into
+            // primaryKeyTags cannot join an existing table's PRIMARY KEY and only lands as a plain
+            // column until the table is rebuilt. Tags whitelisted before creation keep their PK/index
+            // from createTable.
+            final List<TagColumn> missingTags = new ArrayList<>();
             if (expandTags) {
                 for (final TagColumn tag : tagColumns.resolve(model)) {
                     if (!existing.contains(tag.getKey())) {
-                        missingTags.add(tag.getKey());
+                        missingTags.add(tag);
                     }
                 }
             }
@@ -107,7 +109,9 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
             // CREATE TABLE IF NOT EXISTS and would be a no-op. Column reconciliation happens here.
             info.setAllExist(true);
             final List<String> allMissing = new ArrayList<>(missing);
-            allMissing.addAll(missingTags);
+            for (final TagColumn tag : missingTags) {
+                allMissing.add(tag.getKey());
+            }
             if (allMissing.isEmpty()) {
                 opt.recordOutcome("table", tableName, StorageManipulationOpt.Outcome.EXISTING_MATCHED, null);
             } else if (opt.isWithSchemaChange()) {
@@ -175,12 +179,26 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
     }
 
     private void addMissingTagColumns(final Connection conn, final String tableName,
-                                      final List<String> tagKeys) throws SQLException {
-        for (final String key : tagKeys) {
-            final String ddl = "ALTER TABLE " + tableName + " ADD COLUMN "
-                + GreptimeDBConverter.quoteColumn(key) + " STRING";
+                                      final List<TagColumn> tags) throws SQLException {
+        for (final TagColumn tag : tags) {
+            final String key = tag.getKey();
+            final String quoted = GreptimeDBConverter.quoteColumn(key);
             try (Statement stmt = conn.createStatement()) {
-                stmt.execute(ddl);
+                stmt.execute("ALTER TABLE " + tableName + " ADD COLUMN " + quoted + " STRING");
+            }
+            if (tag.isPrimaryKey()) {
+                // GreptimeDB cannot alter an existing table's PRIMARY KEY. A tag newly promoted into
+                // primaryKeyTags lands here as a plain column and only joins the PK on a rebuilt table;
+                // warn loudly rather than silently degrade so the mismatch is visible.
+                log.warn("Searchable tag {} is configured as a primary-key tag but was added to existing "
+                    + "GreptimeDB table {} as a plain column; an existing table's PRIMARY KEY cannot be "
+                    + "changed. Recreate the table to apply the new primary key.", key, tableName);
+            } else {
+                // Field tags carry an INVERTED INDEX at create time; reproduce it so a late-whitelisted
+                // tag is indexed, not merely queryable via full scan.
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.execute("ALTER TABLE " + tableName + " MODIFY COLUMN " + quoted + " SET INVERTED INDEX");
+                }
             }
             log.info("Added searchable tag column {} to GreptimeDB table {}", key, tableName);
         }

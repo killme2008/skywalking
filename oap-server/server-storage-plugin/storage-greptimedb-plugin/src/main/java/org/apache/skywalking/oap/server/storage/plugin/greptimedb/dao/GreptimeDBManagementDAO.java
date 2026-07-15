@@ -55,8 +55,9 @@ public class GreptimeDBManagementDAO implements IManagementDAO {
 
         try {
             final Result<WriteOk, Err> result = client.write(table).get(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-            if (result != null && !result.isOk()) {
-                throw new IOException("GreptimeDB write error for " + model.getName() + ": " + result.getErr());
+            if (result == null || !result.isOk()) {
+                final Object err = result == null ? "null result" : result.getErr();
+                throw new IOException("GreptimeDB write error for " + model.getName() + ": " + err);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
