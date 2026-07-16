@@ -119,7 +119,7 @@ Run all plugin unit tests:
 
 `GreptimeDBIT` starts GreptimeDB v1.1.2 with Testcontainers and verifies DDL, schema validation,
 gRPC writes, SQL reads, merge and append modes, normalized tags, Zipkin annotations, metadata
-snapshots, metrics, and FULLTEXT log queries. Docker must be available.
+snapshots, metrics, JDBC frontend failover, and FULLTEXT log queries. Docker must be available.
 
 Run the same gated integration-test command used by CI:
 

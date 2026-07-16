@@ -128,8 +128,7 @@ class GreptimeDBIT {
     void setUp() throws Exception {
         config = new GreptimeDBStorageConfig();
         config.setGrpcEndpoints(greptimeDB.getHost() + ":" + greptimeDB.getMappedPort(GRPC_PORT));
-        config.setJdbcHost(greptimeDB.getHost());
-        config.setJdbcPort(greptimeDB.getMappedPort(MYSQL_PORT));
+        config.setJdbcEndpoints(greptimeDB.getHost() + ":" + greptimeDB.getMappedPort(MYSQL_PORT));
         config.setDatabase("public");
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
@@ -141,6 +140,28 @@ class GreptimeDBIT {
         client = new GreptimeDBStorageClient(config);
         client.connect();
         installer = new GreptimeDBTableInstaller(client, moduleManager, config, schemaRegistry);
+    }
+
+    @Test
+    void jdbcShouldConnectWhenOneFrontendIsUnavailable() throws Exception {
+        final GreptimeDBStorageConfig failoverConfig = new GreptimeDBStorageConfig();
+        failoverConfig.setGrpcEndpoints(
+            greptimeDB.getHost() + ":" + greptimeDB.getMappedPort(GRPC_PORT));
+        failoverConfig.setJdbcEndpoints(
+            "127.0.0.1:1," + greptimeDB.getHost() + ":" + greptimeDB.getMappedPort(MYSQL_PORT));
+        failoverConfig.setDatabase("public");
+
+        final GreptimeDBStorageClient failoverClient = new GreptimeDBStorageClient(failoverConfig);
+        try {
+            failoverClient.connect();
+            try (Connection connection = failoverClient.getConnection();
+                 Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery("SELECT 1")) {
+                assertTrue(resultSet.next());
+            }
+        } finally {
+            failoverClient.shutdown();
+        }
     }
 
     @Test

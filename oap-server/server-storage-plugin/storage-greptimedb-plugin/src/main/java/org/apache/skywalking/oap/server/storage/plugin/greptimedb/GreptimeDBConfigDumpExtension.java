@@ -42,8 +42,7 @@ public class GreptimeDBConfigDumpExtension implements ConfigDumpExtension {
     public Map<String, String> dumpConfigurations() {
         final Map<String, String> dump = new LinkedHashMap<>();
         dump.put(prefix + ".grpcEndpoints", Strings.nullToEmpty(config.getGrpcEndpoints()));
-        dump.put(prefix + ".jdbcHost", Strings.nullToEmpty(config.getJdbcHost()));
-        dump.put(prefix + ".jdbcPort", String.valueOf(config.getJdbcPort()));
+        dump.put(prefix + ".jdbcEndpoints", Strings.nullToEmpty(config.getJdbcEndpoints()));
         dump.put(prefix + ".database", Strings.nullToEmpty(config.getDatabase()));
         dump.put(prefix + ".user", Strings.nullToEmpty(config.getUser()));
         dump.put(prefix + ".password", Strings.nullToEmpty(config.getPassword()));

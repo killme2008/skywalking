@@ -226,9 +226,8 @@ storage:
   greptimedb:
     # GreptimeDB gRPC write endpoint(s), comma-separated for multiple endpoints.
     grpcEndpoints: ${SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS:127.0.0.1:4001}
-    # GreptimeDB MySQL-compatible protocol endpoint for JDBC reads and DDL.
-    jdbcHost: ${SW_STORAGE_GREPTIMEDB_JDBC_HOST:127.0.0.1}
-    jdbcPort: ${SW_STORAGE_GREPTIMEDB_JDBC_PORT:4002}
+    # GreptimeDB MySQL-compatible protocol endpoint(s) for JDBC reads and DDL.
+    jdbcEndpoints: ${SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS:127.0.0.1:4002}
     database: ${SW_STORAGE_GREPTIMEDB_DATABASE:skywalking}
     user: ${SW_STORAGE_GREPTIMEDB_USER:""}
     password: ${SW_STORAGE_GREPTIMEDB_PASSWORD:""}

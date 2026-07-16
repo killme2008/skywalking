@@ -45,9 +45,8 @@ storage:
   greptimedb:
     # GreptimeDB gRPC write endpoint(s), comma-separated for multiple endpoints.
     grpcEndpoints: ${SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS:127.0.0.1:4001}
-    # GreptimeDB MySQL-compatible protocol endpoint for JDBC reads and DDL.
-    jdbcHost: ${SW_STORAGE_GREPTIMEDB_JDBC_HOST:127.0.0.1}
-    jdbcPort: ${SW_STORAGE_GREPTIMEDB_JDBC_PORT:4002}
+    # GreptimeDB MySQL-compatible protocol endpoint(s) for JDBC reads and DDL.
+    jdbcEndpoints: ${SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS:127.0.0.1:4002}
     database: ${SW_STORAGE_GREPTIMEDB_DATABASE:skywalking}
     user: ${SW_STORAGE_GREPTIMEDB_USER:""}
     password: ${SW_STORAGE_GREPTIMEDB_PASSWORD:""}
@@ -63,8 +62,7 @@ storage:
 | Property | Environment Variable | Default | Description |
 |----------|---------------------|---------|-------------|
 | `grpcEndpoints` | `SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS` | `127.0.0.1:4001` | GreptimeDB gRPC endpoint(s) for writes. Comma-separated for multiple endpoints. |
-| `jdbcHost` | `SW_STORAGE_GREPTIMEDB_JDBC_HOST` | `127.0.0.1` | GreptimeDB MySQL protocol host for reads and DDL. |
-| `jdbcPort` | `SW_STORAGE_GREPTIMEDB_JDBC_PORT` | `4002` | GreptimeDB MySQL protocol port. |
+| `jdbcEndpoints` | `SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS` | `127.0.0.1:4002` | GreptimeDB MySQL endpoints for reads and DDL. Comma-separated endpoints use Connector/J load balancing and failover. |
 | `database` | `SW_STORAGE_GREPTIMEDB_DATABASE` | `skywalking` | Database name. Created automatically if not exists. |
 | `user` | `SW_STORAGE_GREPTIMEDB_USER` | `""` | Authentication username. |
 | `password` | `SW_STORAGE_GREPTIMEDB_PASSWORD` | `""` | Authentication password. |
@@ -76,6 +74,10 @@ storage:
 Searchable trace, log, and alarm tags, plus Zipkin annotation queries, are stored in append-only
 additional tables. The raw `key=value` value has a GreptimeDB skipping index for exact filters.
 Searchable-tag whitelist changes do not change the table schema.
+
+For a GreptimeDB cluster, list every frontend MySQL endpoint in `jdbcEndpoints`, for example
+`frontend-0:4002,frontend-1:4002,frontend-2:4002`. The plugin uses Connector/J load balancing for
+both database bootstrap and the JDBC connection pool, and fails over when a frontend is unavailable.
 
 Management data (UI templates and continuous-profiling policies) is stored with `ttl = 'forever'` and never expires, so there is no TTL to configure for it.
 

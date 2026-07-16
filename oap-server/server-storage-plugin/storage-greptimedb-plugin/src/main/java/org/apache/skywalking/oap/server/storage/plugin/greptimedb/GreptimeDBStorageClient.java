@@ -33,7 +33,10 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.library.client.Client;
@@ -69,15 +72,14 @@ public class GreptimeDBStorageClient implements Client {
 
         // JDBC pool for reads + DDL
         final HikariConfig hikari = new HikariConfig();
-        hikari.setJdbcUrl("jdbc:mysql://" + config.getJdbcHost() + ":" +
-            config.getJdbcPort() + "/" + config.getDatabase());
+        hikari.setJdbcUrl(buildJdbcUrl(config.getJdbcEndpoints(), config.getDatabase()));
         if (!config.getUser().isEmpty()) {
             hikari.setUsername(config.getUser());
             hikari.setPassword(config.getPassword());
         }
         hikari.setMaximumPoolSize(config.getMaxJdbcPoolSize());
         this.jdbcDataSource = new HikariDataSource(hikari);
-        log.info("GreptimeDB JDBC pool connected to: {}:{}", config.getJdbcHost(), config.getJdbcPort());
+        log.info("GreptimeDB JDBC pool connected to: {}", config.getJdbcEndpoints());
     }
 
     public CompletableFuture<Result<WriteOk, Err>> write(final Table... tables) {
@@ -97,8 +99,7 @@ public class GreptimeDBStorageClient implements Client {
 
     private void ensureDatabaseExists() throws SQLException {
         final String database = config.getDatabase();
-        final String bootstrapUrl = "jdbc:mysql://" + config.getJdbcHost() + ":"
-            + config.getJdbcPort() + "/public";
+        final String bootstrapUrl = buildJdbcUrl(config.getJdbcEndpoints(), "public");
         try (Connection conn = config.getUser().isEmpty()
                 ? DriverManager.getConnection(bootstrapUrl)
                 : DriverManager.getConnection(bootstrapUrl, config.getUser(), config.getPassword());
@@ -106,6 +107,20 @@ public class GreptimeDBStorageClient implements Client {
             stmt.execute("CREATE DATABASE IF NOT EXISTS `" + database + "`");
             log.info("Ensured GreptimeDB database '{}' exists", database);
         }
+    }
+
+    static String buildJdbcUrl(final String configuredEndpoints, final String database) {
+        final List<String> endpoints = Arrays.stream(configuredEndpoints.split(","))
+            .map(String::trim)
+            .filter(endpoint -> !endpoint.isEmpty())
+            .collect(Collectors.toList());
+        if (endpoints.isEmpty()) {
+            throw new IllegalArgumentException("jdbcEndpoints must contain at least one endpoint");
+        }
+        final String scheme = endpoints.size() > 1
+            ? "jdbc:mysql:loadbalance://"
+            : "jdbc:mysql://";
+        return scheme + String.join(",", endpoints) + "/" + database;
     }
 
     public void executeDDL(final String sql) throws SQLException {

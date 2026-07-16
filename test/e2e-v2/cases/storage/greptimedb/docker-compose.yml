@@ -43,8 +43,7 @@ services:
     environment:
       SW_STORAGE: greptimedb
       SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS: greptimedb:4001
-      SW_STORAGE_GREPTIMEDB_JDBC_HOST: greptimedb
-      SW_STORAGE_GREPTIMEDB_JDBC_PORT: 4002
+      SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS: greptimedb:4002
       SW_STORAGE_GREPTIMEDB_DATABASE: public
     ports:
       - 12800

@@ -40,7 +40,7 @@ No architecture-level change to OAP core. This is a new `storage-greptimedb-plug
 
 The plugin uses a dual-protocol approach:
 - **Write path**: GreptimeDB's native gRPC ingester SDK (`io.greptime:ingester-all`) for batch writes. The SDK supports async streaming and compression over a persistent gRPC connection, which is a better fit for SkyWalking's write-heavy workload than JDBC INSERT statements.
-- **Read path**: Standard JDBC over GreptimeDB's MySQL-compatible protocol, using HikariCP connection pooling. This keeps the query DAO implementation close to what the JDBC plugin does — plain SQL with PreparedStatement.
+- **Read path**: Standard JDBC over GreptimeDB's MySQL-compatible protocol, using HikariCP connection pooling. Multiple frontend endpoints use Connector/J's load-balancing connection mode for failover. This keeps the query DAO implementation close to what the JDBC plugin does — plain SQL with PreparedStatement.
 
 ## Proposed Changes
 
@@ -166,8 +166,7 @@ storage:
   selector: ${SW_STORAGE:greptimedb}
   greptimedb:
     grpcEndpoints: ${SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS:127.0.0.1:4001}
-    jdbcHost: ${SW_STORAGE_GREPTIMEDB_JDBC_HOST:127.0.0.1}
-    jdbcPort: ${SW_STORAGE_GREPTIMEDB_JDBC_PORT:4002}
+    jdbcEndpoints: ${SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS:127.0.0.1:4002}
     database: ${SW_STORAGE_GREPTIMEDB_DATABASE:skywalking}
     user: ${SW_STORAGE_GREPTIMEDB_USER:}
     password: ${SW_STORAGE_GREPTIMEDB_PASSWORD:}

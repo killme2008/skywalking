@@ -31,14 +31,10 @@ public class GreptimeDBStorageConfig extends ModuleConfig {
     private String grpcEndpoints = "127.0.0.1:4001";
 
     /**
-     * JDBC read endpoint host (GreptimeDB MySQL protocol, port 4002).
+     * JDBC query and DDL endpoints (GreptimeDB MySQL protocol, port 4002).
+     * Comma-separated for load balancing and failover across frontends.
      */
-    private String jdbcHost = "127.0.0.1";
-
-    /**
-     * JDBC read endpoint port.
-     */
-    private int jdbcPort = 4002;
+    private String jdbcEndpoints = "127.0.0.1:4002";
 
     /**
      * Database name.

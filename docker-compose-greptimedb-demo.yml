@@ -51,8 +51,7 @@ services:
     environment:
       SW_STORAGE: greptimedb
       SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS: greptimedb:4001
-      SW_STORAGE_GREPTIMEDB_JDBC_HOST: greptimedb
-      SW_STORAGE_GREPTIMEDB_JDBC_PORT: 4002
+      SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS: greptimedb:4002
       SW_STORAGE_GREPTIMEDB_DATABASE: skywalking
       SW_HEALTH_CHECKER: default
       SW_TELEMETRY: prometheus
