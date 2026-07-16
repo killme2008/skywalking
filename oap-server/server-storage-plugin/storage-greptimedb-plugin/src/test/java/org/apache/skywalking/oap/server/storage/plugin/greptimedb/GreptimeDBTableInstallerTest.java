@@ -37,6 +37,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -205,14 +206,12 @@ class GreptimeDBTableInstallerTest {
     }
 
     @Test
-    void loadsTableNamesOnceAndTracksCreatedTables() throws Exception {
+    void loadsSchemaSnapshotOnceAndTracksCreatedTables() throws Exception {
         final Connection connection = mock(Connection.class);
         final PreparedStatement statement = mock(PreparedStatement.class);
         final ResultSet resultSet = mock(ResultSet.class);
         when(client.getConnection()).thenReturn(connection);
-        when(connection.prepareStatement(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = ?"))
-            .thenReturn(statement);
+        when(connection.prepareStatement(anyString())).thenReturn(statement);
         when(statement.executeQuery()).thenReturn(resultSet);
         when(resultSet.next()).thenReturn(false);
 
@@ -225,7 +224,7 @@ class GreptimeDBTableInstallerTest {
         assertFalse(installer.isExists(
             TestModels.sampleRecordModel(), StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
         verify(client, times(1)).getConnection();
-        verify(statement, times(1)).executeQuery();
+        verify(statement, times(3)).executeQuery();
     }
 
     // ---- selectPrimaryKeyColumns (delegated, but verify installer method) ----
