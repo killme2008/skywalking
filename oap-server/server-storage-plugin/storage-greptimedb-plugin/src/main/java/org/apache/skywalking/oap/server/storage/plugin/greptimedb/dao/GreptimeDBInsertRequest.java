@@ -18,7 +18,7 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
-import io.greptime.models.Table;
+import java.util.List;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.storage.SessionCacheCallback;
@@ -26,16 +26,16 @@ import org.apache.skywalking.oap.server.library.client.request.InsertRequest;
 import org.apache.skywalking.oap.server.library.client.request.PrepareRequest;
 
 /**
- * Wraps a GreptimeDB gRPC Table as an InsertRequest for the batch write pipeline.
+ * Holds logical rows until the batch layer groups them by physical table.
  */
 @Getter
 @RequiredArgsConstructor
 public class GreptimeDBInsertRequest implements InsertRequest, PrepareRequest {
-    private final Table table;
+    private final List<GreptimeDBPreparedRow> rows;
     private final SessionCacheCallback callback;
 
-    public GreptimeDBInsertRequest(final Table table) {
-        this(table, null);
+    public GreptimeDBInsertRequest(final List<GreptimeDBPreparedRow> rows) {
+        this(rows, null);
     }
 
     @Override

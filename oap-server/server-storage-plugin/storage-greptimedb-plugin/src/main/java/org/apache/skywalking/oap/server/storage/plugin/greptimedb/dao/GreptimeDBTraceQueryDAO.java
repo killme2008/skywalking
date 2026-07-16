@@ -45,12 +45,13 @@ import org.apache.skywalking.oap.server.core.storage.query.ITraceQueryDAO;
 import org.apache.skywalking.oap.server.library.util.BooleanUtils;
 import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
-import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBSearchableTagColumns;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendAdditionalEntityConditions;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -85,69 +86,74 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
 
+        final String main = "s";
         sql.append("select ");
-        sql.append(SegmentRecord.SEGMENT_ID).append(", ");
-        sql.append(SegmentRecord.START_TIME).append(", ");
-        sql.append(SegmentRecord.ENDPOINT_ID).append(", ");
-        sql.append(SegmentRecord.LATENCY).append(", ");
-        sql.append(SegmentRecord.IS_ERROR).append(", ");
-        sql.append(SegmentRecord.TRACE_ID);
-        sql.append(" from ").append(SegmentRecord.INDEX_NAME);
-        sql.append(" where 1=1");
+        sql.append(main).append('.').append(SegmentRecord.SEGMENT_ID).append(", ");
+        sql.append(main).append('.').append(SegmentRecord.START_TIME).append(", ");
+        sql.append(main).append('.').append(SegmentRecord.ENDPOINT_ID).append(", ");
+        sql.append(main).append('.').append(SegmentRecord.LATENCY).append(", ");
+        sql.append(main).append('.').append(SegmentRecord.IS_ERROR).append(", ");
+        sql.append(main).append('.').append(SegmentRecord.TRACE_ID);
+        sql.append(" from ").append(SegmentRecord.INDEX_NAME).append(' ').append(main);
 
+        boolean searchableTags = true;
+        if (CollectionUtils.isNotEmpty(tags)) {
+            final Set<String> searchable = tagColumns.searchableKeys(SegmentRecord.INDEX_NAME);
+            searchableTags = tags.stream().allMatch(tag -> searchable.contains(tag.getKey()));
+        }
+        sql.append(" where 1=1");
+        if (!searchableTags) {
+            sql.append(" and 1=0");
+        }
+
+        java.sql.Timestamp tagStart = null;
+        java.sql.Timestamp tagEnd = null;
         if (duration != null) {
             final long startSecondTB = duration.getStartTimeBucketInSec();
             final long endSecondTB = duration.getEndTimeBucketInSec();
             if (startSecondTB != 0 && endSecondTB != 0) {
-                appendTimestampCondition(sql, params, startSecondTB, endSecondTB);
+                appendTimestampCondition(sql, params, main, startSecondTB, endSecondTB);
+                tagStart = toTimestamp(startSecondTB);
+                tagEnd = toTimestamp(endSecondTB);
             }
         }
+        if (searchableTags && CollectionUtils.isNotEmpty(tags)) {
+            appendAdditionalEntityConditions(
+                sql, params, main, SegmentRecord.ADDITIONAL_TAG_TABLE, SegmentRecord.TAGS,
+                tags.stream().map(Tag::toString).collect(Collectors.toList()), tagStart, tagEnd);
+        }
         if (minDuration != 0) {
-            sql.append(" and ").append(SegmentRecord.LATENCY).append(" >= ?");
+            sql.append(" and ").append(main).append('.').append(SegmentRecord.LATENCY).append(" >= ?");
             params.add(minDuration);
         }
         if (maxDuration != 0) {
-            sql.append(" and ").append(SegmentRecord.LATENCY).append(" <= ?");
+            sql.append(" and ").append(main).append('.').append(SegmentRecord.LATENCY).append(" <= ?");
             params.add(maxDuration);
         }
         if (StringUtil.isNotEmpty(serviceId)) {
-            sql.append(" and ").append(SegmentRecord.SERVICE_ID).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(SegmentRecord.SERVICE_ID).append(" = ?");
             params.add(serviceId);
         }
         if (StringUtil.isNotEmpty(serviceInstanceId)) {
-            sql.append(" and ").append(SegmentRecord.SERVICE_INSTANCE_ID).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(SegmentRecord.SERVICE_INSTANCE_ID).append(" = ?");
             params.add(serviceInstanceId);
         }
         if (!Strings.isNullOrEmpty(endpointId)) {
-            sql.append(" and ").append(SegmentRecord.ENDPOINT_ID).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(SegmentRecord.ENDPOINT_ID).append(" = ?");
             params.add(endpointId);
         }
         if (!Strings.isNullOrEmpty(traceId)) {
-            sql.append(" and ").append(SegmentRecord.TRACE_ID).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(SegmentRecord.TRACE_ID).append(" = ?");
             params.add(traceId);
-        }
-
-        // Searchable tags are per-key indexed columns; filter with an equality predicate that pushes down.
-        if (CollectionUtils.isNotEmpty(tags)) {
-            final Set<String> searchable = tagColumns.searchableKeys(SegmentRecord.INDEX_NAME);
-            for (final Tag tag : tags) {
-                if (!searchable.contains(tag.getKey())) {
-                    // Non-searchable tag has no column; force an empty result (mirrors JDBC/ES).
-                    sql.append(" and 1=0");
-                    continue;
-                }
-                sql.append(" and ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" = ?");
-                params.add(tag.getValue());
-            }
         }
 
         switch (traceState) {
             case ERROR:
-                sql.append(" and ").append(SegmentRecord.IS_ERROR).append(" = ")
+                sql.append(" and ").append(main).append('.').append(SegmentRecord.IS_ERROR).append(" = ")
                    .append(BooleanUtils.TRUE);
                 break;
             case SUCCESS:
-                sql.append(" and ").append(SegmentRecord.IS_ERROR).append(" = ")
+                sql.append(" and ").append(main).append('.').append(SegmentRecord.IS_ERROR).append(" = ")
                    .append(BooleanUtils.FALSE);
                 break;
             default:
@@ -156,10 +162,10 @@ public class GreptimeDBTraceQueryDAO implements ITraceQueryDAO {
 
         switch (queryOrder) {
             case BY_START_TIME:
-                sql.append(" order by ").append(SegmentRecord.START_TIME).append(" desc");
+                sql.append(" order by ").append(main).append('.').append(SegmentRecord.START_TIME).append(" desc");
                 break;
             case BY_DURATION:
-                sql.append(" order by ").append(SegmentRecord.LATENCY).append(" desc");
+                sql.append(" order by ").append(main).append('.').append(SegmentRecord.LATENCY).append(" desc");
                 break;
             default:
                 break;

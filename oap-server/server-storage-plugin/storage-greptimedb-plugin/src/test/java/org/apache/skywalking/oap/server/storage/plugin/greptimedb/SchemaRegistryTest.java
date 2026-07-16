@@ -19,10 +19,18 @@
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 
 import io.greptime.models.DataType;
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
+import org.apache.skywalking.oap.server.core.storage.StorageData;
+import org.apache.skywalking.oap.server.core.storage.StorageID;
+import org.apache.skywalking.oap.server.core.storage.type.Convert2Entity;
+import org.apache.skywalking.oap.server.core.storage.type.Convert2Storage;
+import org.apache.skywalking.oap.server.core.storage.type.StorageBuilder;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBIndexPolicy.IndexType;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBTableSchema.SemanticType;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBPreparedRow;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTableBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -116,6 +124,69 @@ class SchemaRegistryTest {
         assertTrue(colNames.contains("segment_id"));
         assertTrue(colNames.contains("trace_id"));
         assertTrue(colNames.contains("service_id"));
+        assertFalse(colNames.contains("tags"));
+    }
+
+    @Test
+    void additionalTableShouldBeAppendOnlyWithoutPrimaryKeyOrExplicitSstFormat() {
+        final GreptimeDBTableSchema schema = registry.getWriteSchemas(TestModels.sampleRecordModel())
+            .get(1).getSchema();
+
+        assertEquals("segment_tag", schema.getTableName());
+        assertTrue(schema.getPrimaryKeys().isEmpty());
+        assertEquals("true", schema.getOptions().get("append_mode"));
+        assertFalse(schema.getOptions().containsKey("merge_mode"));
+        assertFalse(schema.getOptions().containsKey("sst_format"));
+        assertEquals(Arrays.asList("id", "tags", "greptime_ts"),
+            schema.getColumns().stream()
+                .map(GreptimeDBTableSchema.Column::getName)
+                .collect(java.util.stream.Collectors.toList()));
+
+        final GreptimeDBTableSchema.Column id = schema.getColumns().get(0);
+        assertEquals("id", id.getName());
+        assertEquals(SemanticType.FIELD, id.getSemanticType());
+
+        final GreptimeDBTableSchema.Column tags = schema.getColumns().stream()
+            .filter(column -> "tags".equals(column.getName()))
+            .findFirst().orElseThrow();
+        assertEquals(DataType.String, tags.getDataType());
+        assertEquals(SemanticType.FIELD, tags.getSemanticType());
+        assertEquals(IndexType.SKIPPING, tags.getIndexType());
+
+        final String ddl = schema.buildCreateTableDDL();
+        assertFalse(ddl.contains("PRIMARY KEY"));
+        assertFalse(ddl.contains("tag_hash"));
+        assertFalse(ddl.contains("sst_format"));
+        assertTrue(ddl.contains("`tags` STRING SKIPPING INDEX"));
+    }
+
+    @Test
+    void mainAndAdditionalRowsShouldUseIdenticalTimestamp() {
+        final Model model = TestModels.sampleRecordModel();
+        final List<SchemaRegistry.WriteSchemaInfo> schemas = registry.getWriteSchemas(model);
+        final StorageData entity = () -> new StorageID().append("segment-1");
+        final StorageBuilder<StorageData> builder = new StorageBuilder<StorageData>() {
+            @Override
+            public StorageData storage2Entity(final Convert2Entity converter) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void entity2Storage(final StorageData data, final Convert2Storage converter) {
+                converter.accept("segment_id", "segment-1");
+                converter.accept("tags", Arrays.asList("http.method=GET", "status_code=200"));
+            }
+        };
+        final long timestamp = 1_721_111_222_333L;
+
+        final List<GreptimeDBPreparedRow> rows = GreptimeDBTableBuilder.buildRows(
+            entity, builder, model, schemas, timestamp);
+
+        assertEquals(3, rows.size());
+        for (final GreptimeDBPreparedRow row : rows) {
+            final int timestampIndex = row.getSchema().getColumnNames().indexOf("greptime_ts");
+            assertEquals(timestamp, row.getValues()[timestampIndex]);
+        }
     }
 
     @Test
@@ -157,21 +228,4 @@ class SchemaRegistryTest {
         assertEquals(DataType.TimestampMillisecond, dataTypes.get(colNames.indexOf("greptime_ts")));
     }
 
-    @Test
-    void searchableTagSnapshotShouldStayConsistentAfterDynamicConfigChanges() {
-        final Set<String> configuredTags = new HashSet<>(Set.of("http.method"));
-        final GreptimeDBSearchableTagColumns tagColumns = new GreptimeDBSearchableTagColumns(
-            TestModels.mockModuleManager(configuredTags, "", ""),
-            new GreptimeDBStorageConfig()
-        );
-        final SchemaRegistry taggedRegistry = new SchemaRegistry(tagColumns);
-        final Model model = TestModels.sampleRecordModel();
-
-        final SchemaRegistry.WriteSchemaInfo schema = taggedRegistry.getWriteSchema(model);
-        configuredTags.add("db.type");
-
-        assertTrue(schema.getColumnNames().contains("http.method"));
-        assertFalse(schema.getColumnNames().contains("db.type"));
-        assertEquals(Set.of("http.method"), tagColumns.searchableKeys(model.getName()));
-    }
 }

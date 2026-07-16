@@ -50,7 +50,9 @@ import static java.util.Objects.nonNull;
 import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendAdditionalEntityConditions;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
 
 @RequiredArgsConstructor
 public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
@@ -64,36 +66,41 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
 
-        sql.append("select * from ").append(AlarmRecord.INDEX_NAME);
+        final String main = "a";
+        sql.append("select ").append(main).append(".* from ")
+            .append(AlarmRecord.INDEX_NAME).append(' ').append(main);
+        final boolean searchableTags = areTagsSearchable(tags);
         sql.append(" where 1=1");
+        if (!searchableTags) {
+            sql.append(" and 1=0");
+        }
 
+        java.sql.Timestamp tagStart = null;
+        java.sql.Timestamp tagEnd = null;
         if (nonNull(duration)) {
             final long startTB = duration.getStartTimeBucketInSec();
             final long endTB = duration.getEndTimeBucketInSec();
             if (startTB != 0 && endTB != 0) {
-                appendTimestampCondition(sql, params, startTB, endTB);
+                appendTimestampCondition(sql, params, main, startTB, endTB);
+                tagStart = toTimestamp(startTB);
+                tagEnd = toTimestamp(endTB);
             }
         }
+        if (searchableTags && CollectionUtils.isNotEmpty(tags)) {
+            appendAdditionalEntityConditions(
+                sql, params, main, AlarmRecord.ADDITIONAL_TAG_TABLE, AlarmRecord.TAGS,
+                tags.stream().map(Tag::toString).collect(toList()), tagStart, tagEnd);
+        }
         if (nonNull(scopeId)) {
-            sql.append(" and ").append(AlarmRecord.SCOPE).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(AlarmRecord.SCOPE).append(" = ?");
             params.add(scopeId);
         }
         if (!Strings.isNullOrEmpty(keyword)) {
-            sql.append(" and ").append(AlarmRecord.ALARM_MESSAGE).append(" like concat('%',?,'%')");
+            sql.append(" and ").append(main).append('.').append(AlarmRecord.ALARM_MESSAGE)
+                .append(" like concat('%',?,'%')");
             params.add(keyword);
         }
-        if (CollectionUtils.isNotEmpty(tags)) {
-            final Set<String> searchable = tagColumns.searchableKeys(AlarmRecord.INDEX_NAME);
-            for (final Tag tag : tags) {
-                if (!searchable.contains(tag.getKey())) {
-                    sql.append(" and 1=0");
-                    continue;
-                }
-                sql.append(" and ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" = ?");
-                params.add(tag.getValue());
-            }
-        }
-        sql.append(" order by ").append(AlarmRecord.START_TIME).append(" desc");
+        sql.append(" order by ").append(main).append('.').append(AlarmRecord.START_TIME).append(" desc");
         sql.append(" limit ").append(from + limit);
 
         final List<AlarmMessage> alarmMsgs = new ArrayList<>();
@@ -141,23 +148,41 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
 
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
-        sql.append("select * from ").append(AlarmRecord.INDEX_NAME).append(" where 1=1");
+        final String main = "a";
+        sql.append("select ").append(main).append(".* from ")
+            .append(AlarmRecord.INDEX_NAME).append(' ').append(main);
+        final boolean searchableTags = areTagsSearchable(condition.getTags());
+        sql.append(" where 1=1");
+        if (!searchableTags) {
+            sql.append(" and 1=0");
+        }
 
         final long startTB = duration.getStartTimeBucketInSec();
         final long endTB = duration.getEndTimeBucketInSec();
+        java.sql.Timestamp tagStart = null;
+        java.sql.Timestamp tagEnd = null;
         if (startTB != 0 && endTB != 0) {
-            appendTimestampCondition(sql, params, startTB, endTB);
+            appendTimestampCondition(sql, params, main, startTB, endTB);
+            tagStart = toTimestamp(startTB);
+            tagEnd = toTimestamp(endTB);
+        }
+        if (searchableTags && CollectionUtils.isNotEmpty(condition.getTags())) {
+            appendAdditionalEntityConditions(
+                sql, params, main, AlarmRecord.ADDITIONAL_TAG_TABLE, AlarmRecord.TAGS,
+                condition.getTags().stream().map(Tag::toString).collect(toList()),
+                tagStart, tagEnd);
         }
         if (!Strings.isNullOrEmpty(condition.getKeyword())) {
-            sql.append(" and ").append(AlarmRecord.ALARM_MESSAGE).append(" like concat('%',?,'%')");
+            sql.append(" and ").append(main).append('.').append(AlarmRecord.ALARM_MESSAGE)
+                .append(" like concat('%',?,'%')");
             params.add(condition.getKeyword());
         }
         if (StringUtil.isNotEmpty(condition.getLayer())) {
-            sql.append(" and ").append(AlarmRecord.LAYER).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(AlarmRecord.LAYER).append(" = ?");
             params.add(Layer.nameOf(condition.getLayer()).value());
         }
         if (CollectionUtils.isNotEmpty(condition.getRuleNames())) {
-            sql.append(" and ").append(AlarmRecord.RULE_NAME).append(" in (")
+            sql.append(" and ").append(main).append('.').append(AlarmRecord.RULE_NAME).append(" in (")
                .append(condition.getRuleNames().stream().map(it -> "?").collect(joining(", ")))
                .append(")");
             params.addAll(condition.getRuleNames());
@@ -168,11 +193,11 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
             for (final EntityIdConstraint c : entityConstraints) {
                 final List<String> parts = new ArrayList<>(2);
                 if (c.getId0() != null) {
-                    parts.add(AlarmRecord.ID0 + " = ?");
+                    parts.add(main + "." + AlarmRecord.ID0 + " = ?");
                     params.add(c.getId0());
                 }
                 if (c.getId1() != null) {
-                    parts.add(AlarmRecord.ID1 + " = ?");
+                    parts.add(main + "." + AlarmRecord.ID1 + " = ?");
                     params.add(c.getId1());
                 }
                 if (!parts.isEmpty()) {
@@ -183,18 +208,7 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
                 sql.append(" and (").append(String.join(" or ", clauses)).append(")");
             }
         }
-        if (CollectionUtils.isNotEmpty(condition.getTags())) {
-            final Set<String> searchable = tagColumns.searchableKeys(AlarmRecord.INDEX_NAME);
-            for (final Tag tag : condition.getTags()) {
-                if (!searchable.contains(tag.getKey())) {
-                    sql.append(" and 1=0");
-                    continue;
-                }
-                sql.append(" and ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" = ?");
-                params.add(tag.getValue());
-            }
-        }
-        sql.append(" order by ").append(AlarmRecord.START_TIME).append(" desc");
+        sql.append(" order by ").append(main).append('.').append(AlarmRecord.START_TIME).append(" desc");
         sql.append(" limit ").append(from + limit);
 
         final List<AlarmMessage> alarmMsgs = new ArrayList<>();
@@ -224,6 +238,17 @@ public class GreptimeDBAlarmQueryDAO implements IAlarmQueryDAO {
         );
         updateAlarmRecoveryTime(alarms, duration);
         return alarms;
+    }
+
+    private boolean areTagsSearchable(final List<Tag> tags) {
+        if (CollectionUtils.isEmpty(tags)) {
+            return true;
+        }
+        final Set<String> searchable = tagColumns.searchableKeys(AlarmRecord.INDEX_NAME);
+        if (!tags.stream().allMatch(tag -> searchable.contains(tag.getKey()))) {
+            return false;
+        }
+        return true;
     }
 
     private void updateAlarmRecoveryTime(final Alarms alarms,

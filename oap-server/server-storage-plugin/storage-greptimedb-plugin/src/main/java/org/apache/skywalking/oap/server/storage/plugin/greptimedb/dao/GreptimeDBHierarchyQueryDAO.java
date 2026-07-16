@@ -32,23 +32,28 @@ import org.apache.skywalking.oap.server.core.hierarchy.service.ServiceHierarchyR
 import org.apache.skywalking.oap.server.core.storage.query.IHierarchyQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
 
-import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerIdSql;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerSeriesSql;
 
 public class GreptimeDBHierarchyQueryDAO implements IHierarchyQueryDAO {
     private final GreptimeDBStorageClient client;
+    private final SchemaRegistry schemaRegistry;
     private final int queryMaxSize;
 
     public GreptimeDBHierarchyQueryDAO(final GreptimeDBStorageClient client,
+                                       final SchemaRegistry schemaRegistry,
                                        final int metadataQueryMaxSize) {
         this.client = client;
+        this.schemaRegistry = schemaRegistry;
         this.queryMaxSize = metadataQueryMaxSize * 2;
     }
 
     @Override
     public List<ServiceHierarchyRelationTraffic> readAllServiceHierarchyRelations() throws Exception {
-        final String sql = latestPerIdSql(
-            GreptimeDBConverter.resolveTrafficTableName(ServiceHierarchyRelationTraffic.INDEX_NAME),
+        final String table = GreptimeDBConverter.resolveTrafficTableName(
+            ServiceHierarchyRelationTraffic.INDEX_NAME);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table),
             null, null, queryMaxSize);
         final List<ServiceHierarchyRelationTraffic> results = new ArrayList<>();
         try (Connection conn = client.getConnection();
@@ -73,8 +78,9 @@ public class GreptimeDBHierarchyQueryDAO implements IHierarchyQueryDAO {
             + " and " + InstanceHierarchyRelationTraffic.SERVICE_LAYER + " = ?)"
             + " or (" + InstanceHierarchyRelationTraffic.RELATED_INSTANCE_ID + " = ?"
             + " and " + InstanceHierarchyRelationTraffic.RELATED_SERVICE_LAYER + " = ?))";
-        final String sql = latestPerIdSql(
-            GreptimeDBConverter.resolveTrafficTableName(InstanceHierarchyRelationTraffic.INDEX_NAME),
+        final String table = GreptimeDBConverter.resolveTrafficTableName(
+            InstanceHierarchyRelationTraffic.INDEX_NAME);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table),
             innerWhere, null, 0);
 
         final List<InstanceHierarchyRelationTraffic> results = new ArrayList<>();

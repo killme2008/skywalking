@@ -26,6 +26,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -36,6 +37,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
+import org.apache.skywalking.oap.server.core.analysis.TimeBucket;
 import org.apache.skywalking.oap.server.core.query.input.Duration;
 import org.apache.skywalking.oap.server.core.storage.query.IZipkinQueryDAO;
 import org.apache.skywalking.oap.server.core.zipkin.ZipkinServiceRelationTraffic;
@@ -49,6 +51,10 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStor
 import zipkin2.Endpoint;
 import zipkin2.Span;
 import zipkin2.storage.QueryRequest;
+
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendAdditionalEntityConditions;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
 
 @RequiredArgsConstructor
 public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
@@ -145,54 +151,65 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
 
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
-        sql.append("select ").append(ZipkinSpanRecord.TRACE_ID)
-            .append(", min(").append(ZipkinSpanRecord.TIMESTAMP_MILLIS).append(")")
-            .append(" from ").append(ZipkinSpanRecord.INDEX_NAME)
-            .append(" where 1=1");
+        final String main = "z";
+        sql.append("select ").append(main).append('.').append(ZipkinSpanRecord.TRACE_ID)
+            .append(", min(").append(main).append('.').append(ZipkinSpanRecord.TIMESTAMP_MILLIS).append(")")
+            .append(" from ").append(ZipkinSpanRecord.INDEX_NAME).append(' ').append(main);
+        final List<String> annotations;
+        if (CollectionUtils.isNotEmpty(request.annotationQuery())) {
+            annotations = request.annotationQuery().entrySet().stream()
+                .map(annotation -> annotation.getValue().isEmpty()
+                    ? annotation.getKey() : annotation.getKey() + "=" + annotation.getValue())
+                .collect(Collectors.toList());
+        } else {
+            annotations = java.util.Collections.emptyList();
+        }
+        sql.append(" where 1=1");
 
+        Timestamp tagStart = null;
+        Timestamp tagEnd = null;
         if (startTimeMillis > 0 && endTimeMillis > 0) {
-            sql.append(" and ").append(ZipkinSpanRecord.TIMESTAMP_MILLIS).append(" >= ?");
+            tagStart = toTimestamp(TimeBucket.getRecordTimeBucket(startTimeMillis));
+            tagEnd = toTimestamp(TimeBucket.getRecordTimeBucket(endTimeMillis));
+            sql.append(" and ").append(main).append(".greptime_ts >= ?");
+            params.add(tagStart);
+            sql.append(" and ").append(main).append(".greptime_ts <= ?");
+            params.add(tagEnd);
+            sql.append(" and ").append(main).append('.').append(ZipkinSpanRecord.TIMESTAMP_MILLIS).append(" >= ?");
             params.add(startTimeMillis);
-            sql.append(" and ").append(ZipkinSpanRecord.TIMESTAMP_MILLIS).append(" <= ?");
+            sql.append(" and ").append(main).append('.').append(ZipkinSpanRecord.TIMESTAMP_MILLIS).append(" <= ?");
             params.add(endTimeMillis);
         }
+        if (!annotations.isEmpty()) {
+            appendAdditionalEntityConditions(
+                sql, params, main, ZipkinSpanRecord.ADDITIONAL_QUERY_TABLE,
+                ZipkinSpanRecord.QUERY, annotations, tagStart, tagEnd);
+        }
         if (request.minDuration() != null) {
-            sql.append(" and ").append(ZipkinSpanRecord.DURATION).append(" >= ?");
+            sql.append(" and ").append(main).append('.').append(ZipkinSpanRecord.DURATION).append(" >= ?");
             params.add(request.minDuration());
         }
         if (request.maxDuration() != null) {
-            sql.append(" and ").append(ZipkinSpanRecord.DURATION).append(" <= ?");
+            sql.append(" and ").append(main).append('.').append(ZipkinSpanRecord.DURATION).append(" <= ?");
             params.add(request.maxDuration());
         }
         if (!StringUtil.isEmpty(request.serviceName())) {
-            sql.append(" and ").append(ZipkinSpanRecord.LOCAL_ENDPOINT_SERVICE_NAME)
+            sql.append(" and ").append(main).append('.').append(ZipkinSpanRecord.LOCAL_ENDPOINT_SERVICE_NAME)
                 .append(" = ?");
             params.add(request.serviceName());
         }
         if (!StringUtil.isEmpty(request.remoteServiceName())) {
-            sql.append(" and ").append(ZipkinSpanRecord.REMOTE_ENDPOINT_SERVICE_NAME)
+            sql.append(" and ").append(main).append('.').append(ZipkinSpanRecord.REMOTE_ENDPOINT_SERVICE_NAME)
                 .append(" = ?");
             params.add(request.remoteServiceName());
         }
         if (!StringUtil.isEmpty(request.spanName())) {
-            sql.append(" and ").append(ZipkinSpanRecord.NAME).append(" = ?");
+            sql.append(" and ").append(main).append('.')
+                .append(GreptimeDBConverter.quoteColumn(ZipkinSpanRecord.NAME)).append(" = ?");
             params.add(request.spanName());
         }
-        if (CollectionUtils.isNotEmpty(request.annotationQuery())) {
-            for (final Map.Entry<String, String> annotation
-                    : request.annotationQuery().entrySet()) {
-                sql.append(" and ").append(ZipkinSpanRecord.QUERY).append(" LIKE ? ESCAPE '\\'");
-                if (annotation.getValue().isEmpty()) {
-                    params.add("%" + escapeLike(annotation.getKey()) + "%");
-                } else {
-                    params.add("%" + escapeLike(annotation.getKey()) + "="
-                        + escapeLike(annotation.getValue()) + "%");
-                }
-            }
-        }
-
-        sql.append(" group by ").append(ZipkinSpanRecord.TRACE_ID);
-        sql.append(" order by min(").append(ZipkinSpanRecord.TIMESTAMP_MILLIS)
+        sql.append(" group by ").append(main).append('.').append(ZipkinSpanRecord.TRACE_ID);
+        sql.append(" order by min(").append(main).append('.').append(ZipkinSpanRecord.TIMESTAMP_MILLIS)
             .append(") desc");
         sql.append(" limit ").append(request.limit());
 
@@ -200,9 +217,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
         final Set<String> traceIds = new LinkedHashSet<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                ps.setObject(i + 1, params.get(i));
-            }
+            setParameters(ps, params);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     traceIds.add(rs.getString(ZipkinSpanRecord.TRACE_ID));
@@ -221,7 +236,7 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
         }
         final List<List<Span>> ordered = new ArrayList<>();
         for (final String traceId : traceIds) {
-            final List<Span> spans = byTraceId.get(traceId);
+            final List<Span> spans = byTraceId.get(normalizeTraceId(traceId));
             if (spans != null) {
                 ordered.add(spans);
             }
@@ -229,8 +244,11 @@ public class GreptimeDBZipkinQueryDAO implements IZipkinQueryDAO {
         return ordered;
     }
 
-    private static String escapeLike(final String value) {
-        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    private static String normalizeTraceId(final String traceId) {
+        if (traceId.length() == 32 && traceId.startsWith("0000000000000000")) {
+            return traceId.substring(16);
+        }
+        return traceId;
     }
 
     @Override

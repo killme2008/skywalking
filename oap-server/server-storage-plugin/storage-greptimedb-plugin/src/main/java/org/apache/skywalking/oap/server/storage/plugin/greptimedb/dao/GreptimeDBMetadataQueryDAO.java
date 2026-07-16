@@ -53,9 +53,10 @@ import org.apache.skywalking.oap.server.core.storage.query.IMetadataQueryDAO;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
 
 import static org.apache.skywalking.oap.server.core.analysis.manual.instance.InstanceTraffic.PropertyUtil.LANGUAGE;
-import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerIdSql;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerSeriesSql;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
 
 @Slf4j
@@ -63,18 +64,21 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
     private static final Gson GSON = new Gson();
 
     private final GreptimeDBStorageClient client;
+    private final SchemaRegistry schemaRegistry;
     private final int metadataQueryMaxSize;
 
     public GreptimeDBMetadataQueryDAO(final GreptimeDBStorageClient client,
+                                       final SchemaRegistry schemaRegistry,
                                        final int metadataQueryMaxSize) {
         this.client = client;
+        this.schemaRegistry = schemaRegistry;
         this.metadataQueryMaxSize = metadataQueryMaxSize;
     }
 
     @Override
     public List<Service> listServices() throws IOException {
-        final String sql = latestPerIdSql(
-            GreptimeDBConverter.resolveTrafficTableName(ServiceTraffic.INDEX_NAME),
+        final String table = GreptimeDBConverter.resolveTrafficTableName(ServiceTraffic.INDEX_NAME);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table),
             null, null, metadataQueryMaxSize);
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql);
@@ -101,7 +105,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
             inner.append(" and ").append(InstanceTraffic.TIME_BUCKET).append(" <= ?");
             params.add(endMinuteTimeBucket);
         }
-        final String sql = latestPerIdSql(table, inner.toString(), null, metadataQueryMaxSize);
+        final String sql = latestPerSeriesSql(
+            schemaRegistry.getTableSchema(table), inner.toString(), null, metadataQueryMaxSize);
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -137,8 +142,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
         }
         final String placeholders = instanceIds.stream().map(id -> "?")
             .collect(Collectors.joining(","));
-        final String sql = latestPerIdSql(
-            GreptimeDBConverter.resolveTrafficTableName(InstanceTraffic.INDEX_NAME),
+        final String table = GreptimeDBConverter.resolveTrafficTableName(InstanceTraffic.INDEX_NAME);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table),
             "`id` in (" + placeholders + ")", null, instanceIds.size());
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -173,8 +178,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
             inner.append(" and ").append(EndpointTraffic.TIME_BUCKET).append(" <= ?");
             params.add(endMinuteTimeBucket);
         }
-        final String sql = latestPerIdSql(table, inner.toString(),
-            "order by t." + GreptimeDBConverter.quoteColumn(EndpointTraffic.TIME_BUCKET) + " desc", limit);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table), inner.toString(),
+            "order by " + GreptimeDBConverter.quoteColumn(EndpointTraffic.TIME_BUCKET) + " desc", limit);
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -206,8 +211,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
         final List<Object> params = new ArrayList<>();
         appendProcessConditions(inner, params, serviceId, null, null,
             supportStatus, lastPingStartTimeBucket, lastPingEndTimeBucket, false);
-        final String sql = latestPerIdSql(
-            GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME),
+        final String table = GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table),
             inner.toString(), null, metadataQueryMaxSize);
         return executeProcessQuery(sql, params);
     }
@@ -220,8 +225,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
         final List<Object> params = new ArrayList<>();
         appendProcessConditions(inner, params, null, serviceInstanceId, null,
             null, duration.getStartTimeBucket(), duration.getEndTimeBucket(), includeVirtual);
-        final String sql = latestPerIdSql(
-            GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME),
+        final String table = GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table),
             inner.toString(), null, metadataQueryMaxSize);
         return executeProcessQuery(sql, params);
     }
@@ -234,8 +239,8 @@ public class GreptimeDBMetadataQueryDAO implements IMetadataQueryDAO {
         final List<Object> params = new ArrayList<>();
         appendProcessConditions(inner, params, null, null, agentId,
             null, startPingTimeBucket, endPingTimeBucket, false);
-        final String sql = latestPerIdSql(
-            GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME),
+        final String table = GreptimeDBConverter.resolveTrafficTableName(ProcessTraffic.INDEX_NAME);
+        final String sql = latestPerSeriesSql(schemaRegistry.getTableSchema(table),
             inner.toString(), null, metadataQueryMaxSize);
         return executeProcessQuery(sql, params);
     }

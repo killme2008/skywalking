@@ -19,14 +19,66 @@
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
 import io.greptime.models.DataType;
+import java.util.Arrays;
+import java.util.List;
+import org.apache.skywalking.oap.server.core.storage.StorageData;
+import org.apache.skywalking.oap.server.core.storage.StorageID;
+import org.apache.skywalking.oap.server.core.storage.model.Model;
+import org.apache.skywalking.oap.server.core.storage.type.StorageBuilder;
 import org.apache.skywalking.oap.server.core.storage.type.StorageDataComplexObject;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class GreptimeDBTableBuilderTest {
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    void buildRowsShouldShareTimestampAndExpandEveryListValue() {
+        final StorageData entity = mock(StorageData.class);
+        final StorageID id = mock(StorageID.class);
+        when(entity.id()).thenReturn(id);
+        when(id.build()).thenReturn("record-1");
+
+        final StorageBuilder builder = mock(StorageBuilder.class);
+        doAnswer(invocation -> {
+            final org.apache.skywalking.oap.server.core.storage.type.Convert2Storage converter =
+                invocation.getArgument(1);
+            converter.accept("value", "main");
+            converter.accept("tags", Arrays.asList("http.method=GET", "http.method=POST"));
+            return null;
+        }).when(builder).entity2Storage(eq(entity), org.mockito.ArgumentMatchers.any());
+
+        final SchemaRegistry.WriteSchemaInfo main = mock(SchemaRegistry.WriteSchemaInfo.class);
+        when(main.getColumnNames()).thenReturn(Arrays.asList("id", "value", "greptime_ts"));
+        when(main.getDataTypes()).thenReturn(
+            Arrays.asList(DataType.String, DataType.String, DataType.TimestampMillisecond));
+
+        final SchemaRegistry.WriteSchemaInfo tags = mock(SchemaRegistry.WriteSchemaInfo.class);
+        when(tags.getColumnNames()).thenReturn(Arrays.asList("id", "tags", "greptime_ts"));
+        when(tags.getDataTypes()).thenReturn(
+            Arrays.asList(DataType.String, DataType.String, DataType.TimestampMillisecond));
+        when(tags.getListColumn()).thenReturn("tags");
+
+        final long timestamp = 1_704_067_200_000L;
+        final List<GreptimeDBPreparedRow> rows = GreptimeDBTableBuilder.buildRows(
+            entity, builder, mock(Model.class), Arrays.asList(main, tags), timestamp);
+
+        assertEquals(3, rows.size());
+        assertEquals("record-1", rows.get(0).getValues()[0]);
+        assertEquals(timestamp, rows.get(0).getValues()[2]);
+        assertEquals("http.method=GET", rows.get(1).getValues()[1]);
+        assertEquals(timestamp, rows.get(1).getValues()[2]);
+        assertEquals("http.method=POST", rows.get(2).getValues()[1]);
+        assertEquals(timestamp, rows.get(2).getValues()[2]);
+    }
 
     // ---- coerceValue: null handling ----
 

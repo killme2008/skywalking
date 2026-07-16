@@ -137,14 +137,14 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
     @Override
     public void prepare() throws ServiceNotProvidedException, ModuleStartException {
         this.client = new GreptimeDBStorageClient(config);
-        this.tagColumns = new GreptimeDBSearchableTagColumns(getManager(), config);
-        this.schemaRegistry = new SchemaRegistry(tagColumns);
-        this.tableInstaller = new GreptimeDBTableInstaller(client, getManager(), config, tagColumns);
+        this.tagColumns = new GreptimeDBSearchableTagColumns(getManager());
+        this.schemaRegistry = new SchemaRegistry(config);
+        this.tableInstaller = new GreptimeDBTableInstaller(client, getManager(), config, schemaRegistry);
 
         // StorageBuilderFactory: use default
         this.registerServiceImplementation(StorageBuilderFactory.class, new StorageBuilderFactory.Default());
 
-        // Expose the installer so core drives table creation and the runtime-rule reconciler can call isExists()
+        // Expose the installer so core drives table creation and validates runtime-rule tables.
         this.registerServiceImplementation(ModelInstaller.class, tableInstaller);
 
         // Batch & Storage DAO
@@ -156,14 +156,15 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
         this.registerServiceImplementation(StorageTTLStatusQuery.class, new GreptimeDBTTLStatusQuery(config));
 
         // Cache
-        this.registerServiceImplementation(INetworkAddressAliasDAO.class, new GreptimeDBNetworkAddressAliasDAO(client));
+        this.registerServiceImplementation(
+            INetworkAddressAliasDAO.class, new GreptimeDBNetworkAddressAliasDAO(client, schemaRegistry));
 
         // Query DAOs
         this.registerServiceImplementation(ITopologyQueryDAO.class, new GreptimeDBTopologyQueryDAO(client));
         this.registerServiceImplementation(IMetricsQueryDAO.class, new GreptimeDBMetricsQueryDAO(client));
         this.registerServiceImplementation(ITraceQueryDAO.class, new GreptimeDBTraceQueryDAO(client, tagColumns));
         this.registerServiceImplementation(IMetadataQueryDAO.class,
-            new GreptimeDBMetadataQueryDAO(client, config.getMetadataQueryMaxSize()));
+            new GreptimeDBMetadataQueryDAO(client, schemaRegistry, config.getMetadataQueryMaxSize()));
         this.registerServiceImplementation(IAggregationQueryDAO.class, new GreptimeDBAggregationQueryDAO(client));
         this.registerServiceImplementation(IAlarmQueryDAO.class, new GreptimeDBAlarmQueryDAO(client, tagColumns));
         this.registerServiceImplementation(IRecordsQueryDAO.class, new GreptimeDBRecordsQueryDAO(client));
@@ -174,7 +175,7 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
         this.registerServiceImplementation(ITagAutoCompleteQueryDAO.class, new GreptimeDBTagAutoCompleteQueryDAO(client));
         this.registerServiceImplementation(IZipkinQueryDAO.class, new GreptimeDBZipkinQueryDAO(client));
         this.registerServiceImplementation(IHierarchyQueryDAO.class,
-            new GreptimeDBHierarchyQueryDAO(client, config.getMetadataQueryMaxSize()));
+            new GreptimeDBHierarchyQueryDAO(client, schemaRegistry, config.getMetadataQueryMaxSize()));
 
         // Management
         this.registerServiceImplementation(UITemplateManagementDAO.class, new GreptimeDBUITemplateManagementDAO(client));
@@ -187,7 +188,9 @@ public class GreptimeDBStorageProvider extends ModuleProvider {
 
         // Profiling - eBPF
         this.registerServiceImplementation(IEBPFProfilingTaskDAO.class, new GreptimeDBEBPFProfilingTaskDAO(client));
-        this.registerServiceImplementation(IEBPFProfilingScheduleDAO.class, new GreptimeDBEBPFProfilingScheduleDAO(client));
+        this.registerServiceImplementation(
+            IEBPFProfilingScheduleDAO.class,
+            new GreptimeDBEBPFProfilingScheduleDAO(client, schemaRegistry));
         this.registerServiceImplementation(IEBPFProfilingDataDAO.class, new GreptimeDBEBPFProfilingDataDAO(client));
         this.registerServiceImplementation(IContinuousProfilingPolicyDAO.class, new GreptimeDBContinuousProfilingPolicyDAO(client));
         this.registerServiceImplementation(IServiceLabelDAO.class, new GreptimeDBServiceLabelDAO(client));

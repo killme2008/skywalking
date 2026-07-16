@@ -21,7 +21,6 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
@@ -33,7 +32,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,7 +50,7 @@ class GreptimeDBTableInstallerTest {
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
         moduleManager = TestModels.mockModuleManager(Collections.emptySet(), "", "");
-        installer = new GreptimeDBTableInstaller(client, moduleManager, config);
+        installer = new GreptimeDBTableInstaller(client, moduleManager, config, new SchemaRegistry(config));
     }
 
     // ---- DDL: Metrics model ----
@@ -118,41 +116,18 @@ class GreptimeDBTableInstallerTest {
     }
 
     @Test
-    void buildDDLForRecordShouldNotStoreTagsAsJsonWhenNoSearchableTags() {
-        // segment expands searchable tags into per-key columns; with an empty whitelist there is no
-        // tags column at all (the JSON blob is gone).
+    void buildDDLForRecordShouldNotUseSkippingIndexForRangeColumns() {
         final Model model = TestModels.sampleRecordModel();
         final String ddl = installer.buildCreateTableDDL(model);
-        assertFalse(ddl.contains("`tags`"), "Record tags must not be stored as a JSON column");
+        assertTrue(ddl.contains("`latency` INT"));
+        assertFalse(ddl.contains("`latency` INT SKIPPING INDEX"));
     }
 
     @Test
-    void buildDDLForRecordShouldExpandSearchableTagsToColumns() {
-        final ModuleManager mm = TestModels.mockModuleManager(Set.of("http.method", "db.type"), "", "");
-        final GreptimeDBTableInstaller taggedInstaller = new GreptimeDBTableInstaller(client, mm, config);
-        final String ddl = taggedInstaller.buildCreateTableDDL(TestModels.sampleRecordModel());
-
-        // http.method is in the default primaryKeyTags -> PRIMARY KEY tag (no extra index).
-        assertTrue(ddl.contains("`http.method` STRING"), "searchable PK tag becomes a column");
-        assertTrue(ddl.contains("PRIMARY KEY (`service_id`, `http.method`)"),
-            "primaryKeyTags join the PRIMARY KEY after the model's own PK");
-        // db.type is not a primaryKeyTag -> inverted-indexed field column.
-        assertTrue(ddl.contains("`db.type` STRING INVERTED INDEX"),
-            "non-PK searchable tag becomes an inverted-indexed field");
-    }
-
-    @Test
-    void buildDDLForRecordShouldRejectSearchableTagColumnCollisions() {
-        for (final String tag : List.of("id", "greptime_ts", "service_id")) {
-            final ModuleManager mm = TestModels.mockModuleManager(Set.of(tag), "", "");
-            final GreptimeDBTableInstaller taggedInstaller = new GreptimeDBTableInstaller(client, mm, config);
-
-            assertThrows(
-                IllegalArgumentException.class,
-                () -> taggedInstaller.buildCreateTableDDL(TestModels.sampleRecordModel()),
-                "Should reject conflicting searchable tag: " + tag
-            );
-        }
+    void buildDDLForRecordShouldNotStoreTagsAsJsonWhenNoSearchableTags() {
+        final Model model = TestModels.sampleRecordModel();
+        final String ddl = installer.buildCreateTableDDL(model);
+        assertFalse(ddl.contains("`tags`"), "Record tags belong to the normalized additional table");
     }
 
     @Test

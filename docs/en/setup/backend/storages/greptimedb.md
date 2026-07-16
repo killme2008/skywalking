@@ -23,13 +23,14 @@ The plugin maps SkyWalking data models to GreptimeDB tables:
 | NoneStream | `merge_mode='last_row'` | Upsert by `id` for profiling tasks |
 
 Key design decisions:
-- **Searchable tags stored as per-key columns** with primary-key or inverted indexes, eliminating separate tag tables and JOINs.
+- **Searchable tags stored as normalized rows** in append-only additional tables. Raw `key=value`
+  values use skipping indexes, and queries use correlated `EXISTS` predicates.
 - **Native TTL** via `WITH ('ttl' = '...')` table options. No manual history deletion needed.
 - **No date-partitioned tables**. GreptimeDB handles time-based partitioning internally via TIME INDEX.
 
 ### Prerequisites
 
-- GreptimeDB v1.0 or later
+- GreptimeDB v1.1.2 or later
 - Ports: 4001 (gRPC), 4002 (MySQL protocol)
 
 ### Configuration
@@ -53,7 +54,6 @@ storage:
     recordsTTL: ${SW_STORAGE_GREPTIMEDB_RECORDS_TTL:3d}
     maxJdbcPoolSize: ${SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE:10}
     metadataQueryMaxSize: ${SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE:5000}
-    primaryKeyTags: ${SW_STORAGE_GREPTIMEDB_PRIMARY_KEY_TAGS:http.method,http.status_code}
 ```
 
 ### Configuration Properties
@@ -70,11 +70,10 @@ storage:
 | `recordsTTL` | `SW_STORAGE_GREPTIMEDB_RECORDS_TTL` | `3d` | TTL for records (traces, logs, alarms). |
 | `maxJdbcPoolSize` | `SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE` | `10` | Max JDBC connection pool size. |
 | `metadataQueryMaxSize` | `SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE` | `5000` | Max rows for metadata queries (services, instances, endpoints). |
-| `primaryKeyTags` | `SW_STORAGE_GREPTIMEDB_PRIMARY_KEY_TAGS` | `http.method,http.status_code` | Subset of the searchable tag keys promoted into a record table's PRIMARY KEY. Must be low cardinality; the remaining searchable tags become inverted-indexed field columns. Keys must match the `searchableTracesTags`/`searchableLogsTags`/`searchableAlarmTags` whitelists exactly — a key outside those whitelists is ignored. |
 
-Searchable trace/log/alarm tags (the `searchableTracesTags` / `searchableLogsTags` / `searchableAlarmTags` core config) are stored as per-key indexed columns rather than a JSON blob, so tag filters push down. Keys listed in `primaryKeyTags` join the table's PRIMARY KEY; the rest become inverted-indexed fields.
-
-The searchable-tag list is fixed when OAP installs the GreptimeDB schema. Restart OAP after changing these settings so the installer can add the new columns before queries use them: a newly whitelisted field tag is added with its inverted index (`ALTER TABLE ... MODIFY COLUMN ... SET INVERTED INDEX`), so it is indexed, not merely queryable. A tag newly added to `primaryKeyTags`, however, only lands as a plain column on an existing table — GreptimeDB cannot change an existing table's PRIMARY KEY, so recreate the table to apply a new primary-key tag. Searchable tag names must not collide with model columns or the reserved `id` and `greptime_ts` columns.
+Searchable trace, log, and alarm tags, plus Zipkin annotation queries, are stored in append-only
+additional tables. The raw `key=value` value has a GreptimeDB skipping index for exact filters.
+Searchable-tag whitelist changes do not change the table schema.
 
 Management data (UI templates and continuous-profiling policies) is stored with `ttl = 'forever'` and never expires, so there is no TTL to configure for it.
 
@@ -114,5 +113,4 @@ For production cluster deployment, refer to the [GreptimeDB documentation](https
 
 ### Known Limitations
 
-- **Dynamic searchable-tag updates**: Changes take effect after an OAP restart. New field tags are added to existing tables with an inverted index, but a new `primaryKeyTags` entry does not change an existing table's PRIMARY KEY — recreate the table to apply it.
 - **FULLTEXT search**: Log content FULLTEXT search uses English analyzer by default.

@@ -18,7 +18,6 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
-import io.greptime.models.Table;
 import java.io.IOException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -43,6 +42,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStor
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
 
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.GREPTIME_TS;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setTimestamp;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -82,10 +82,10 @@ public class GreptimeDBMetricsDAO implements IMetricsDAO {
 
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setTimestamp(1, new Timestamp(
-                GreptimeDBConverter.timeBucketToTimestamp(minTimeBucket, model.getDownsampling())));
-            ps.setTimestamp(2, new Timestamp(
-                GreptimeDBConverter.timeBucketToTimestamp(maxTimeBucket, model.getDownsampling())));
+            setTimestamp(ps, 1, new Timestamp(
+                GreptimeDBConverter.storageTimestamp(model, minTimeBucket)));
+            setTimestamp(ps, 2, new Timestamp(
+                GreptimeDBConverter.storageTimestamp(model, maxTimeBucket)));
             for (int i = 0; i < ids.size(); i++) {
                 ps.setString(i + 3, ids.get(i));
             }
@@ -108,23 +108,20 @@ public class GreptimeDBMetricsDAO implements IMetricsDAO {
     @Override
     public InsertRequest prepareBatchInsert(final Model model, final Metrics metrics,
                                             final SessionCacheCallback callback) throws IOException {
-        final Table table = buildMetricsTable(model, metrics);
-        return new GreptimeDBInsertRequest(table, callback);
+        return new GreptimeDBInsertRequest(buildMetricsRows(model, metrics), callback);
     }
 
     @Override
     public UpdateRequest prepareBatchUpdate(final Model model, final Metrics metrics,
                                             final SessionCacheCallback callback) throws IOException {
         // In GreptimeDB with merge_mode='last_row', update is an insert that overwrites
-        final Table table = buildMetricsTable(model, metrics);
-        return new GreptimeDBUpdateRequest(table, callback);
+        return new GreptimeDBUpdateRequest(buildMetricsRows(model, metrics), callback);
     }
 
     @SuppressWarnings("unchecked")
-    private Table buildMetricsTable(final Model model, final Metrics metrics) {
-        final SchemaRegistry.WriteSchemaInfo schemaInfo = schemaRegistry.getWriteSchema(model);
-        final long greptimeTs = GreptimeDBConverter.timeBucketToTimestamp(
-            metrics.getTimeBucket(), model.getDownsampling());
-        return GreptimeDBTableBuilder.buildTable(metrics, storageBuilder, model, schemaInfo, greptimeTs);
+    private List<GreptimeDBPreparedRow> buildMetricsRows(final Model model, final Metrics metrics) {
+        final long greptimeTs = GreptimeDBConverter.storageTimestamp(model, metrics.getTimeBucket());
+        return GreptimeDBTableBuilder.buildRows(
+            metrics, storageBuilder, model, schemaRegistry.getWriteSchemas(model), greptimeTs);
     }
 }

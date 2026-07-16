@@ -23,6 +23,7 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -38,7 +39,6 @@ import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.type.Convert2Entity;
 import org.apache.skywalking.oap.server.core.storage.type.Convert2Storage;
-import org.apache.skywalking.oap.server.library.util.CollectionUtils;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 
 /**
@@ -94,7 +94,9 @@ public final class GreptimeDBConverter {
         } else if (DataTable.class.equals(type)) {
             return "STRING";
         } else if (List.class.isAssignableFrom(type)) {
-            return "JSON";
+            throw new IllegalArgumentException(
+                "List columns must be stored in a normalized additional table: "
+                    + column.getColumnName().getStorageName());
         } else if (type.isEnum()) {
             // Enum fields (e.g. Layer, ProfileLanguageType) are stored as int by StorageBuilder
             return "INT";
@@ -126,7 +128,9 @@ public final class GreptimeDBConverter {
         } else if (DataTable.class.equals(type)) {
             return DataType.String;
         } else if (List.class.isAssignableFrom(type)) {
-            return DataType.Json;
+            throw new IllegalArgumentException(
+                "List columns must be stored in a normalized additional table: "
+                    + column.getColumnName().getStorageName());
         } else if (type.isEnum()) {
             // Enum fields (e.g. Layer, ProfileLanguageType) are stored as int by StorageBuilder
             return DataType.Int32;
@@ -154,6 +158,20 @@ public final class GreptimeDBConverter {
      */
     public static long timeBucketToTimestamp(final long timeBucket, final DownSampling downsampling) {
         return TimeBucket.getTimestamp(timeBucket, downsampling);
+    }
+
+    /**
+     * Index-mode metrics represent current-state metadata and do not need one physical row per
+     * active minute. Keep one row per series and hour so merge_mode=last_row reduces storage and
+     * query scans without reducing duration-based metadata queries to day-level snapshots.
+     */
+    public static long storageTimestamp(final Model model, final long timeBucket) {
+        final long timestamp = timeBucketToTimestamp(timeBucket, model.getDownsampling());
+        if (!model.getBanyanDBModelExtension().isIndexMode()) {
+            return timestamp;
+        }
+        final long hourBucket = TimeBucket.getTimeBucket(timestamp, DownSampling.Hour);
+        return TimeBucket.getTimestamp(hourBucket, DownSampling.Hour);
     }
 
     /**
@@ -213,16 +231,21 @@ public final class GreptimeDBConverter {
         }
 
         if (model.isMetric()) {
-            for (final ModelColumn col : model.getColumns()) {
-                final String name = col.getColumnName().getStorageName();
-                if (name.equals("entity_id")) {
-                    pkColumns.add(name);
-                    break;
-                }
-            }
+            model.getColumns().stream()
+                .filter(column -> column.getBanyanDBExtension().isSeriesID())
+                .sorted(Comparator.comparingInt(
+                    column -> column.getBanyanDBExtension().getSeriesIDIdx()))
+                .map(column -> column.getColumnName().getStorageName())
+                .forEach(pkColumns::add);
             if (pkColumns.isEmpty()) {
-                // Use synthetic id to keep metric dimensions unique per time bucket.
-                pkColumns.add("id");
+                model.getColumns().stream()
+                    .map(column -> column.getColumnName().getStorageName())
+                    .filter("entity_id"::equals)
+                    .findFirst()
+                    .ifPresent(pkColumns::add);
+                if (pkColumns.isEmpty()) {
+                    pkColumns.add("id");
+                }
             }
         } else if (model.isRecord()) {
             for (final ModelColumn col : model.getColumns()) {
@@ -234,52 +257,6 @@ public final class GreptimeDBConverter {
         }
 
         return pkColumns;
-    }
-
-    /**
-     * Check if a column is high-cardinality (should not be a PRIMARY KEY).
-     */
-    public static boolean isHighCardinalityColumn(final String colName) {
-        return colName.equals("trace_id")
-            || colName.equals("segment_id")
-            || colName.equals("unique_id");
-    }
-
-    /**
-     * Convert a List of "key=value" tag strings to a JSON object string.
-     * Example: ["http.method=GET", "http.status_code=200"] -&gt; {"http.method":"GET","http.status_code":"200"}
-     */
-    public static String tagsToJson(final List<String> tags) {
-        if (CollectionUtils.isEmpty(tags)) {
-            return null;
-        }
-        final StringBuilder sb = new StringBuilder("{");
-        boolean first = true;
-        for (final String tag : tags) {
-            final int idx = tag.indexOf('=');
-            if (idx == 0) {
-                // Skip malformed "=value" entries (empty key)
-                continue;
-            }
-            if (!first) {
-                sb.append(',');
-            }
-            first = false;
-            if (idx < 0) {
-                // No '=' found: store entire string as key with empty value (e.g. Zipkin annotations)
-                sb.append('"').append(escapeJson(tag)).append("\":\"\"");
-            } else {
-                sb.append('"').append(escapeJson(tag.substring(0, idx)))
-                  .append("\":\"").append(escapeJson(tag.substring(idx + 1)))
-                  .append('"');
-            }
-        }
-        sb.append('}');
-        return sb.toString();
-    }
-
-    private static String escapeJson(final String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     /**
@@ -335,8 +312,8 @@ public final class GreptimeDBConverter {
     }
 
     /**
-     * HashMap-based Convert2Storage, collects field values into a Map.
-     * {@code List<String>} fields (tags) are automatically converted to JSON.
+     * HashMap-based Convert2Storage, collects field values into a Map. List values stay intact so
+     * AdditionalEntity writers can emit one normalized row per item.
      */
     public static class ToStorage implements Convert2Storage<Map<String, Object>> {
         private final Map<String, Object> source = new HashMap<>();
@@ -353,17 +330,7 @@ public final class GreptimeDBConverter {
 
         @Override
         public void accept(final String fieldName, final List<String> fieldValue) {
-            // Keep a JSON form for any table that still uses a JSON tags column.
-            source.put(fieldName, tagsToJson(fieldValue));
-            // Also split "key=value" entries so per-key searchable tag columns pick them up by key.
-            if (fieldValue != null) {
-                for (final String tag : fieldValue) {
-                    final int idx = tag.indexOf('=');
-                    if (idx > 0) {
-                        source.put(tag.substring(0, idx), tag.substring(idx + 1));
-                    }
-                }
-            }
+            source.put(fieldName, fieldValue);
         }
 
         @Override

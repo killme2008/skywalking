@@ -21,8 +21,12 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.util.List;
 import org.apache.skywalking.oap.server.core.analysis.manual.process.ProcessTraffic;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBTableSchema;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBTableSchema.Column;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +51,10 @@ class GreptimeDBMetadataQueryDAOTest {
     private PreparedStatement statement;
     @Mock
     private ResultSet resultSet;
+    @Mock
+    private SchemaRegistry schemaRegistry;
+    @Mock
+    private GreptimeDBTableSchema tableSchema;
 
     private GreptimeDBMetadataQueryDAO dao;
 
@@ -55,7 +64,17 @@ class GreptimeDBMetadataQueryDAOTest {
         when(connection.prepareStatement(anyString())).thenReturn(statement);
         when(statement.executeQuery()).thenReturn(resultSet);
         when(resultSet.next()).thenReturn(false);
-        dao = new GreptimeDBMetadataQueryDAO(client, 100);
+        when(schemaRegistry.getTableSchema(anyString())).thenReturn(tableSchema);
+        when(tableSchema.getTableName()).thenReturn("process_traffic_minute");
+        final Column id = mock(Column.class);
+        final Column entityId = mock(Column.class);
+        final Column timestamp = mock(Column.class);
+        when(id.getName()).thenReturn("id");
+        when(entityId.getName()).thenReturn("entity_id");
+        when(timestamp.getName()).thenReturn("greptime_ts");
+        when(tableSchema.getPrimaryKeys()).thenReturn(List.of("entity_id"));
+        when(tableSchema.getColumns()).thenReturn(List.of(id, entityId, timestamp));
+        dao = new GreptimeDBMetadataQueryDAO(client, schemaRegistry, 100);
     }
 
     @Test
@@ -64,6 +83,9 @@ class GreptimeDBMetadataQueryDAOTest {
 
         final ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
         verify(connection).prepareStatement(sql.capture());
+        assertTrue(sql.getValue().contains("last_value(`id` order by `greptime_ts`) as `id`"));
+        assertTrue(sql.getValue().contains("group by `entity_id`"));
+        assertTrue(!sql.getValue().contains(" join "));
         assertTrue(sql.getValue().contains(ProcessTraffic.LAST_PING_TIME_BUCKET + " >= ?"));
         assertTrue(sql.getValue().contains(ProcessTraffic.TIME_BUCKET + " <= ?"));
         verify(statement).setString(1, "agent-id");

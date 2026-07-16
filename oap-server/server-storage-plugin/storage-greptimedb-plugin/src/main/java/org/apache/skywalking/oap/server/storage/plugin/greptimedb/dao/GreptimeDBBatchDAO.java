@@ -21,7 +21,9 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 import io.greptime.models.Table;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import lombok.RequiredArgsConstructor;
@@ -39,20 +41,20 @@ public class GreptimeDBBatchDAO implements IBatchDAO {
 
     @Override
     public void insert(final InsertRequest insertRequest) {
-        if (insertRequest instanceof GreptimeDBInsertRequest) {
-            final GreptimeDBInsertRequest req = (GreptimeDBInsertRequest) insertRequest;
-            final Table table = req.getTable();
-            table.complete();
-            client.write(table).whenComplete((result, throwable) -> {
-                if (throwable != null) {
-                    log.error("Failed to write single insert to GreptimeDB", throwable);
-                } else if (result != null && !result.isOk()) {
-                    log.error("GreptimeDB write error: {}", result.getErr());
-                } else {
-                    req.onInsertCompleted();
-                }
-            });
+        if (!(insertRequest instanceof GreptimeDBInsertRequest)) {
+            return;
         }
+        final GreptimeDBInsertRequest request = (GreptimeDBInsertRequest) insertRequest;
+        final Table[] tables = groupRows(request.getRows());
+        client.write(tables).whenComplete((result, throwable) -> {
+            if (throwable != null) {
+                log.error("Failed to write single insert to GreptimeDB", throwable);
+            } else if (result == null || !result.isOk()) {
+                log.error("GreptimeDB write error: {}", result == null ? "null result" : result.getErr());
+            } else {
+                request.onInsertCompleted();
+            }
+        });
     }
 
     @Override
@@ -61,57 +63,55 @@ public class GreptimeDBBatchDAO implements IBatchDAO {
             return CompletableFuture.completedFuture(null);
         }
 
-        final List<Table> tables = new ArrayList<>(prepareRequests.size());
+        final List<GreptimeDBPreparedRow> rows = new ArrayList<>();
         final List<GreptimeDBInsertRequest> insertCallbacks = new ArrayList<>();
         final List<GreptimeDBUpdateRequest> updateCallbacks = new ArrayList<>();
-
         for (final PrepareRequest request : prepareRequests) {
-            Table table = null;
             if (request instanceof GreptimeDBInsertRequest) {
-                final GreptimeDBInsertRequest insertReq = (GreptimeDBInsertRequest) request;
-                table = insertReq.getTable();
-                insertCallbacks.add(insertReq);
+                final GreptimeDBInsertRequest insert = (GreptimeDBInsertRequest) request;
+                rows.addAll(insert.getRows());
+                insertCallbacks.add(insert);
             } else if (request instanceof GreptimeDBUpdateRequest) {
-                final GreptimeDBUpdateRequest updateReq = (GreptimeDBUpdateRequest) request;
-                table = updateReq.getTable();
-                updateCallbacks.add(updateReq);
-            }
-            if (table != null) {
-                table.complete();
-                tables.add(table);
+                final GreptimeDBUpdateRequest update = (GreptimeDBUpdateRequest) request;
+                rows.addAll(update.getRows());
+                updateCallbacks.add(update);
             }
         }
-
-        if (tables.isEmpty()) {
+        if (rows.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
 
-        // The returned future must reflect the write outcome: PersistenceTimer relies on exceptional
-        // completion to know a flush failed. Completing normally on error would silently drop records
-        // (which carry no session-cache retry) and hide metric write failures.
-        return client.write(tables.toArray(new Table[0])).handle((result, throwable) -> {
+        return client.write(groupRows(rows)).handle((result, throwable) -> {
             if (throwable != null) {
                 log.error("Failed to flush batch to GreptimeDB", throwable);
                 notifyUpdateFailure(updateCallbacks);
                 throw new CompletionException(throwable);
             }
             if (result == null || !result.isOk()) {
-                final Object err = result == null ? "null result" : result.getErr();
-                log.error("GreptimeDB batch write error: {}", err);
+                final Object error = result == null ? "null result" : result.getErr();
+                log.error("GreptimeDB batch write error: {}", error);
                 notifyUpdateFailure(updateCallbacks);
-                throw new CompletionException(new IOException("GreptimeDB batch write failed: " + err));
+                throw new CompletionException(new IOException("GreptimeDB batch write failed: " + error));
             }
-            for (final GreptimeDBInsertRequest req : insertCallbacks) {
-                req.onInsertCompleted();
-            }
+            insertCallbacks.forEach(GreptimeDBInsertRequest::onInsertCompleted);
             return null;
         });
     }
 
-    private static void notifyUpdateFailure(final List<GreptimeDBUpdateRequest> updateCallbacks) {
-        // Keep dirty entries in the session cache so the next persistence cycle retries them.
-        for (final GreptimeDBUpdateRequest req : updateCallbacks) {
-            req.onUpdateFailure();
+    static Table[] groupRows(final List<GreptimeDBPreparedRow> rows) {
+        final Map<String, Table> grouped = new LinkedHashMap<>();
+        for (final GreptimeDBPreparedRow row : rows) {
+            final Table table = grouped.computeIfAbsent(
+                row.getSchema().getFingerprint(),
+                ignored -> Table.from(row.getSchema().getTableSchema())
+            );
+            table.addRow(row.getValues());
         }
+        grouped.values().forEach(Table::complete);
+        return grouped.values().toArray(new Table[0]);
+    }
+
+    private static void notifyUpdateFailure(final List<GreptimeDBUpdateRequest> callbacks) {
+        callbacks.forEach(GreptimeDBUpdateRequest::onUpdateFailure);
     }
 }

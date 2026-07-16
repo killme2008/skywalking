@@ -73,22 +73,56 @@ final class TestModels {
         return col(name, type, false, 200);
     }
 
+    static ModelColumn seriesIdCol(final String name, final Class<?> type, final int index) {
+        final Column annotation = mock(Column.class);
+        lenient().when(annotation.name()).thenReturn(name);
+        return new ModelColumn(
+            new ColumnName(annotation),
+            type, type,
+            false, false, false,
+            200,
+            new SQLDatabaseExtension(),
+            new ElasticSearchExtension(null, null, false, false, false),
+            new BanyanDBExtension(index, -1, true, null, false, null, false)
+        );
+    }
+
     static Model metricsModel(final String name, final DownSampling ds,
                                final List<ModelColumn> columns) {
+        return metricsModel(name, ds, columns, new BanyanDBModelExtension());
+    }
+
+    static Model indexModeMetricsModel(final String name, final DownSampling ds,
+                                        final List<ModelColumn> columns) {
+        final BanyanDBModelExtension extension = new BanyanDBModelExtension();
+        extension.setIndexMode(true);
+        return metricsModel(name, ds, columns, extension);
+    }
+
+    private static Model metricsModel(final String name, final DownSampling ds,
+                                       final List<ModelColumn> columns,
+                                       final BanyanDBModelExtension extension) {
         return new Model(
             name, columns, 1, ds,
             false, Metrics.class, true, false,
             new SQLDatabaseModelExtension(),
-            new BanyanDBModelExtension(),
+            extension,
             new ElasticSearchModelExtension()
         );
     }
 
     static Model recordModel(final String name, final List<ModelColumn> columns) {
+        final SQLDatabaseModelExtension sqlExtension = new SQLDatabaseModelExtension();
+        columns.stream()
+               .filter(column -> List.class.isAssignableFrom(column.getType()))
+               .forEach(column -> {
+                   sqlExtension.appendAdditionalTable(name + "_tag", column);
+                   sqlExtension.appendExcludeColumns(column);
+               });
         return new Model(
             name, columns, 2, DownSampling.Second,
             false, Record.class, false, false,
-            new SQLDatabaseModelExtension(),
+            sqlExtension,
             new BanyanDBModelExtension(),
             new ElasticSearchModelExtension()
         );

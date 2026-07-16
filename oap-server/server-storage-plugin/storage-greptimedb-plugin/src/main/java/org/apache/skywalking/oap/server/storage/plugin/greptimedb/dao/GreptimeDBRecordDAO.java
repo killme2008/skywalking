@@ -18,8 +18,8 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
-import io.greptime.models.Table;
 import java.io.IOException;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.record.Record;
 import org.apache.skywalking.oap.server.core.storage.IRecordDAO;
@@ -40,11 +40,10 @@ public class GreptimeDBRecordDAO implements IRecordDAO {
     @Override
     @SuppressWarnings("unchecked")
     public InsertRequest prepareBatchInsert(final Model model, final Record record) throws IOException {
-        final SchemaRegistry.WriteSchemaInfo schemaInfo = schemaRegistry.getWriteSchema(model);
         final long greptimeTs = GreptimeDBConverter.timeBucketToTimestamp(
             record.getTimeBucket(), model.getDownsampling());
-        final Table table = GreptimeDBTableBuilder.buildTable(
-            record, storageBuilder, model, schemaInfo, greptimeTs);
-        return new GreptimeDBInsertRequest(table);
+        final List<GreptimeDBPreparedRow> rows = GreptimeDBTableBuilder.buildRows(
+            record, storageBuilder, model, schemaRegistry.getWriteSchemas(model), greptimeTs);
+        return new GreptimeDBInsertRequest(rows);
     }
 }

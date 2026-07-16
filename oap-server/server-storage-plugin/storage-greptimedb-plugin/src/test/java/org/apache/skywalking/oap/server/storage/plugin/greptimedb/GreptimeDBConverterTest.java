@@ -35,8 +35,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GreptimeDBConverterTest {
 
@@ -91,8 +90,11 @@ class GreptimeDBConverterTest {
     }
 
     @Test
-    void mapToSqlTypeShouldReturnJsonForList() {
-        assertEquals("JSON", GreptimeDBConverter.mapToSqlType(TestModels.col("tags", List.class)));
+    void mapToSqlTypeShouldRejectListColumns() {
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GreptimeDBConverter.mapToSqlType(TestModels.col("tags", List.class))
+        );
     }
 
     // ---- mapDataType ----
@@ -108,7 +110,10 @@ class GreptimeDBConverterTest {
         assertEquals(DataType.Float32, GreptimeDBConverter.mapDataType(TestModels.col("ratio", float.class)));
         assertEquals(DataType.Binary, GreptimeDBConverter.mapDataType(TestModels.col("data", byte[].class)));
         assertEquals(DataType.String, GreptimeDBConverter.mapDataType(TestModels.col("dt", DataTable.class)));
-        assertEquals(DataType.Json, GreptimeDBConverter.mapDataType(TestModels.col("tags", List.class)));
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> GreptimeDBConverter.mapDataType(TestModels.col("tags", List.class))
+        );
     }
 
     // ---- resolveTableName ----
@@ -145,59 +150,6 @@ class GreptimeDBConverterTest {
         columns.add(TestModels.col("service_id", String.class));
         final Model model = TestModels.metricsModel("service_resp_time", DownSampling.Hour, columns);
         assertEquals("service_resp_time_hour", GreptimeDBConverter.resolveTableName(model));
-    }
-
-    // ---- tagsToJson ----
-
-    @Test
-    void tagsToJsonShouldReturnNullForEmptyList() {
-        assertNull(GreptimeDBConverter.tagsToJson(null));
-        assertNull(GreptimeDBConverter.tagsToJson(Collections.emptyList()));
-    }
-
-    @Test
-    void tagsToJsonShouldConvertKeyValuePairs() {
-        final List<String> tags = Arrays.asList("http.method=GET", "http.status_code=200");
-        final String json = GreptimeDBConverter.tagsToJson(tags);
-        assertEquals("{\"http.method\":\"GET\",\"http.status_code\":\"200\"}", json);
-    }
-
-    @Test
-    void tagsToJsonShouldHandleItemsWithoutEqualsSign() {
-        // Zipkin annotations like "sr", "cs" have no '=' sign
-        final List<String> tags = Arrays.asList("sr", "cs");
-        final String json = GreptimeDBConverter.tagsToJson(tags);
-        assertEquals("{\"sr\":\"\",\"cs\":\"\"}", json);
-    }
-
-    @Test
-    void tagsToJsonShouldSkipEmptyKeyEntries() {
-        // "=value" has idx==0, should be skipped
-        final List<String> tags = Arrays.asList("=orphan_value", "valid=ok");
-        final String json = GreptimeDBConverter.tagsToJson(tags);
-        assertEquals("{\"valid\":\"ok\"}", json);
-    }
-
-    @Test
-    void tagsToJsonShouldHandleMixedEntries() {
-        final List<String> tags = Arrays.asList("http.method=GET", "annotation", "=bad", "status=200");
-        final String json = GreptimeDBConverter.tagsToJson(tags);
-        assertEquals("{\"http.method\":\"GET\",\"annotation\":\"\",\"status\":\"200\"}", json);
-    }
-
-    @Test
-    void tagsToJsonShouldEscapeQuotesAndBackslashes() {
-        final List<String> tags = Collections.singletonList("msg=hello \"world\"\\!");
-        final String json = GreptimeDBConverter.tagsToJson(tags);
-        assertEquals("{\"msg\":\"hello \\\"world\\\"\\\\!\"}", json);
-    }
-
-    @Test
-    void tagsToJsonShouldHandleValueContainingEquals() {
-        // "key=a=b" -> key="a=b"
-        final List<String> tags = Collections.singletonList("expr=a=b");
-        final String json = GreptimeDBConverter.tagsToJson(tags);
-        assertEquals("{\"expr\":\"a=b\"}", json);
     }
 
     // ---- selectPrimaryKeyColumns ----
@@ -250,17 +202,6 @@ class GreptimeDBConverterTest {
         final Model model = TestModels.metricsModel("odd_metric", DownSampling.Minute, columns);
         final List<String> pk = GreptimeDBConverter.selectPrimaryKeyColumns(model);
         assertEquals(Collections.singletonList("id"), pk);
-    }
-
-    // ---- isHighCardinalityColumn ----
-
-    @Test
-    void isHighCardinalityColumnShouldIdentifyKnownColumns() {
-        assertTrue(GreptimeDBConverter.isHighCardinalityColumn("trace_id"));
-        assertTrue(GreptimeDBConverter.isHighCardinalityColumn("segment_id"));
-        assertTrue(GreptimeDBConverter.isHighCardinalityColumn("unique_id"));
-        assertFalse(GreptimeDBConverter.isHighCardinalityColumn("service_id"));
-        assertFalse(GreptimeDBConverter.isHighCardinalityColumn("entity_id"));
     }
 
     // ---- resolveMetricsTableName ----
@@ -325,20 +266,21 @@ class GreptimeDBConverterTest {
         assertFalse(row.containsKey("id"));
     }
 
-    // ---- ToStorage (tags -> JSON conversion) ----
+    // ---- ToStorage ----
 
     @Test
-    void toStorageShouldConvertTagListToJson() {
+    void toStorageShouldPreserveTagListForAdditionalTableRows() {
         final GreptimeDBConverter.ToStorage storage = new GreptimeDBConverter.ToStorage();
-        storage.accept("tags", Arrays.asList("k1=v1", "k2=v2"));
-        assertEquals("{\"k1\":\"v1\",\"k2\":\"v2\"}", storage.get("tags"));
+        final List<String> tags = Arrays.asList("k1=v1", "k2=v2");
+        storage.accept("tags", tags);
+        assertEquals(tags, storage.get("tags"));
     }
 
     @Test
-    void toStorageShouldStoreNullForEmptyTagList() {
+    void toStorageShouldPreserveEmptyTagList() {
         final GreptimeDBConverter.ToStorage storage = new GreptimeDBConverter.ToStorage();
         storage.accept("tags", Collections.emptyList());
-        assertNull(storage.get("tags"));
+        assertEquals(Collections.emptyList(), storage.get("tags"));
     }
 
     // ---- ToEntity ----
@@ -406,15 +348,59 @@ class GreptimeDBConverterTest {
             GreptimeDBConverter.resolveTrafficTableName("service_traffic"));
     }
 
-    // ---- ToStorage splits the tag list into per-key entries for searchable tag columns ----
+    @Test
+    void storageTimestampShouldCollapseIndexModeMetricsToOneRowPerHour() {
+        final Model model = TestModels.indexModeMetricsModel(
+            "ebpf_profiling_schedule", DownSampling.Minute,
+            Collections.singletonList(TestModels.col("task_id", String.class)));
+
+        final long firstMinute = GreptimeDBConverter.storageTimestamp(model, 202401011001L);
+        final long lastMinute = GreptimeDBConverter.storageTimestamp(model, 202401011059L);
+        final long nextHour = GreptimeDBConverter.storageTimestamp(model, 202401011100L);
+
+        assertEquals(firstMinute, lastMinute);
+        assertFalse(firstMinute == nextHour);
+        assertEquals(
+            org.apache.skywalking.oap.server.core.analysis.TimeBucket.getTimestamp(
+                2024010110L, DownSampling.Hour),
+            firstMinute);
+    }
 
     @Test
-    void toStorageShouldSplitTagListIntoPerKeyEntries() {
-        final GreptimeDBConverter.ToStorage toStorage = new GreptimeDBConverter.ToStorage();
-        toStorage.accept("tags", Arrays.asList("http.method=GET", "status_code=200"));
-        final Map<String, Object> map = toStorage.obtain();
-        // Each "key=value" becomes a map entry so the per-key tag column picks it up by key.
-        assertEquals("GET", map.get("http.method"));
-        assertEquals("200", map.get("status_code"));
+    void storageTimestampShouldUseIndexModeInsteadOfModelName() {
+        final Model model = TestModels.metricsModel(
+            "service_traffic", DownSampling.Minute,
+            Collections.singletonList(TestModels.col("service_id", String.class)));
+
+        assertEquals(
+            GreptimeDBConverter.timeBucketToTimestamp(202401011001L, DownSampling.Minute),
+            GreptimeDBConverter.storageTimestamp(model, 202401011001L));
     }
+
+    @Test
+    void storageTimestampShouldPreserveNormalMetricResolution() {
+        final Model model = TestModels.sampleMetricsModel();
+        assertEquals(
+            GreptimeDBConverter.timeBucketToTimestamp(202401011234L, DownSampling.Minute),
+            GreptimeDBConverter.storageTimestamp(model, 202401011234L));
+    }
+
+    @Test
+    void metricPrimaryKeyShouldContainAllSeriesIdColumnsInDeclaredOrder() {
+        final Model model = TestModels.metricsModel(
+            "relation_metric",
+            DownSampling.Minute,
+            Arrays.asList(
+                TestModels.seriesIdCol("component_id", int.class, 1),
+                TestModels.seriesIdCol("entity_id", String.class, 0),
+                TestModels.col("value", long.class)
+            )
+        );
+
+        assertEquals(
+            Arrays.asList("entity_id", "component_id"),
+            GreptimeDBConverter.selectPrimaryKeyColumns(model)
+        );
+    }
+
 }

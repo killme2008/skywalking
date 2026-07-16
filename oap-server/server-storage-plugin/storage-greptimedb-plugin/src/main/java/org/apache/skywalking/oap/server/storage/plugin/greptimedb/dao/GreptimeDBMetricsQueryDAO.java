@@ -45,6 +45,7 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConv
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
 
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.GREPTIME_TS;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setTimestamp;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
 
 @RequiredArgsConstructor
@@ -156,8 +157,8 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
              PreparedStatement ps = conn.prepareStatement(sql)) {
             final Timestamp startTs = toTimestamp(duration.getStartTimeBucket());
             final Timestamp endTs = toTimestamp(duration.getEndTimeBucket());
-            ps.setTimestamp(1, startTs);
-            ps.setTimestamp(2, endTs);
+            setTimestamp(ps, 1, startTs);
+            setTimestamp(ps, 2, endTs);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     final String id = rs.getString("id");
@@ -238,8 +239,8 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
         final List<String> entityIds = new ArrayList<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setTimestamp(1, toTimestamp(duration.getStartTimeBucket()));
-            ps.setTimestamp(2, toTimestamp(duration.getEndTimeBucket()));
+            setTimestamp(ps, 1, toTimestamp(duration.getStartTimeBucket()));
+            setTimestamp(ps, 2, toTimestamp(duration.getEndTimeBucket()));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     entityIds.add(rs.getString(Metrics.ENTITY_ID));
@@ -283,8 +284,8 @@ public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
         if (entityId != null) {
             ps.setString(idx++, entityId);
         }
-        ps.setTimestamp(idx++, toTimestamp(duration.getStartTimeBucket()));
-        ps.setTimestamp(idx++, toTimestamp(duration.getEndTimeBucket()));
+        setTimestamp(ps, idx++, toTimestamp(duration.getStartTimeBucket()));
+        setTimestamp(ps, idx++, toTimestamp(duration.getEndTimeBucket()));
         for (final String id : ids) {
             ps.setString(idx++, id);
         }

@@ -21,11 +21,14 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.util.Calendar;
 import java.util.List;
+import java.util.TimeZone;
 import lombok.AccessLevel;
 import lombok.NoArgsConstructor;
 import org.apache.skywalking.oap.server.library.util.StringUtil;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBTableSchema;
 
 @NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class GreptimeDBQueryHelper {
@@ -56,11 +59,17 @@ public final class GreptimeDBQueryHelper {
             } else if (param instanceof String) {
                 ps.setString(i + 1, (String) param);
             } else if (param instanceof Timestamp) {
-                ps.setTimestamp(i + 1, (Timestamp) param);
+                setTimestamp(ps, i + 1, (Timestamp) param);
             } else {
                 ps.setObject(i + 1, param);
             }
         }
+    }
+
+    static void setTimestamp(final PreparedStatement ps,
+                             final int index,
+                             final Timestamp timestamp) throws SQLException {
+        ps.setTimestamp(index, timestamp, Calendar.getInstance(TimeZone.getTimeZone("UTC")));
     }
 
     /**
@@ -69,9 +78,16 @@ public final class GreptimeDBQueryHelper {
      */
     static void appendTimestampCondition(final StringBuilder sql, final List<Object> params,
                                          final long startTimeBucket, final long endTimeBucket) {
-        sql.append(" and ").append(GREPTIME_TS).append(" >= ?");
+        appendTimestampCondition(sql, params, null, startTimeBucket, endTimeBucket);
+    }
+
+    static void appendTimestampCondition(final StringBuilder sql, final List<Object> params,
+                                         final String alias,
+                                         final long startTimeBucket, final long endTimeBucket) {
+        final String prefix = alias == null ? "" : alias + '.';
+        sql.append(" and ").append(prefix).append(GREPTIME_TS).append(" >= ?");
         params.add(toTimestamp(startTimeBucket));
-        sql.append(" and ").append(GREPTIME_TS).append(" <= ?");
+        sql.append(" and ").append(prefix).append(GREPTIME_TS).append(" <= ?");
         params.add(toTimestamp(endTimeBucket));
     }
 
@@ -91,33 +107,37 @@ public final class GreptimeDBQueryHelper {
         }
     }
 
-    /**
-     * Wrap a traffic/metadata table read so that only the latest row per synthetic {@code id}
-     * is returned. These tables accumulate one row per active minute (the {@code id} is a stable
-     * business key, {@code greptime_ts} increases each persistence period); a self-join against
-     * max({@code greptime_ts}) per id collapses them to a single current row, matching the
-     * upsert-in-place semantics of the JDBC/ES storages.
-     *
-     * @param table       the physical table name
-     * @param innerWhere  row-selection predicate without the {@code where} keyword (null/empty for
-     *                    none); every bound parameter belongs to this clause
-     * @param outerSuffix an optional trailing clause applied to the deduplicated rows, e.g.
-     *                    {@code order by t.`time_bucket` desc} (null/empty for none)
-     * @param limit       row limit, appended only when positive
-     * @return the deduplicating SQL
-     */
-    static String latestPerIdSql(final String table, final String innerWhere,
-                                 final String outerSuffix, final int limit) {
-        final String id = GreptimeDBConverter.quoteColumn("id");
+    static String latestPerSeriesSql(final GreptimeDBTableSchema schema,
+                                     final String innerWhere,
+                                     final String outerSuffix,
+                                     final int limit) {
+        if (schema.getPrimaryKeys().isEmpty()) {
+            throw new IllegalArgumentException(
+                "Latest-row query requires a primary key: " + schema.getTableName());
+        }
         final String ts = GreptimeDBConverter.quoteColumn(GREPTIME_TS);
         final StringBuilder sql = new StringBuilder();
-        sql.append("select t.* from ").append(table).append(" t join (select ")
-           .append(id).append(", max(").append(ts).append(") as mx from ").append(table);
+        sql.append("select ");
+        for (int i = 0; i < schema.getColumns().size(); i++) {
+            if (i > 0) {
+                sql.append(", ");
+            }
+            final String column = GreptimeDBConverter.quoteColumn(
+                schema.getColumns().get(i).getName());
+            if (schema.getPrimaryKeys().contains(schema.getColumns().get(i).getName())) {
+                sql.append(column);
+            } else {
+                sql.append("last_value(").append(column).append(" order by ").append(ts)
+                    .append(") as ").append(column);
+            }
+        }
+        sql.append(" from ").append(schema.getTableName());
         if (StringUtil.isNotEmpty(innerWhere)) {
             sql.append(" where ").append(innerWhere);
         }
-        sql.append(" group by ").append(id).append(") latest on t.").append(id)
-           .append(" = latest.").append(id).append(" and t.").append(ts).append(" = latest.mx");
+        sql.append(" group by ").append(schema.getPrimaryKeys().stream()
+            .map(GreptimeDBConverter::quoteColumn)
+            .collect(java.util.stream.Collectors.joining(", ")));
         if (StringUtil.isNotEmpty(outerSuffix)) {
             sql.append(' ').append(outerSuffix);
         }
@@ -127,11 +147,30 @@ public final class GreptimeDBQueryHelper {
         return sql.toString();
     }
 
-    static String buildJsonPathMatchExpr(final String key, final String value) {
-        return "$[\"" + escapeJsonPath(key) + "\"] == \"" + escapeJsonPath(value) + "\"";
-    }
-
-    private static String escapeJsonPath(final String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    static void appendAdditionalEntityConditions(final StringBuilder sql,
+                                                  final List<Object> params,
+                                                  final String mainAlias,
+                                                  final String table,
+                                                  final String valueColumn,
+                                                  final List<String> values,
+                                                  final Timestamp start,
+                                                  final Timestamp end) {
+        for (int i = 0; i < values.size(); i++) {
+            final String alias = "tag_" + i;
+            sql.append(" and exists (select 1 from ").append(table).append(' ').append(alias)
+                .append(" where ").append(alias).append(".`id` = ").append(mainAlias).append(".`id`")
+                .append(" and ").append(alias).append(".`greptime_ts` = ")
+                .append(mainAlias).append(".`greptime_ts`")
+                .append(" and ").append(alias).append('.')
+                .append(GreptimeDBConverter.quoteColumn(valueColumn)).append(" = ?");
+            params.add(values.get(i));
+            if (start != null && end != null) {
+                sql.append(" and ").append(alias).append(".`greptime_ts` >= ?")
+                    .append(" and ").append(alias).append(".`greptime_ts` <= ?");
+                params.add(start);
+                params.add(end);
+            }
+            sql.append(')');
+        }
     }
 }

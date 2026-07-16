@@ -32,15 +32,22 @@ import org.apache.skywalking.oap.server.core.query.type.EBPFProfilingSchedule;
 import org.apache.skywalking.oap.server.core.storage.profiling.ebpf.IEBPFProfilingScheduleDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry;
+
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.latestPerSeriesSql;
 
 @RequiredArgsConstructor
 public class GreptimeDBEBPFProfilingScheduleDAO implements IEBPFProfilingScheduleDAO {
     private final GreptimeDBStorageClient client;
+    private final SchemaRegistry schemaRegistry;
 
     @Override
     public List<EBPFProfilingSchedule> querySchedules(final String taskId) throws IOException {
-        final String sql = "select * from " + EBPFProfilingScheduleRecord.INDEX_NAME
-            + " where " + EBPFProfilingScheduleRecord.TASK_ID + " = ?";
+        final String table = GreptimeDBConverter.resolveTrafficTableName(
+            EBPFProfilingScheduleRecord.INDEX_NAME);
+        final String sql = latestPerSeriesSql(
+            schemaRegistry.getTableSchema(table),
+            EBPFProfilingScheduleRecord.TASK_ID + " = ?", null, 0);
         final List<EBPFProfilingSchedule> schedules = new ArrayList<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {

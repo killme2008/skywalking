@@ -20,6 +20,7 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
 import io.greptime.models.DataType;
 import io.greptime.models.Table;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.apache.skywalking.oap.server.core.storage.StorageData;
@@ -53,12 +54,54 @@ public final class GreptimeDBTableBuilder {
             final Model model,
             final SchemaRegistry.WriteSchemaInfo schemaInfo,
             final long greptimeTs) {
-        // Collect all field values from entity via StorageBuilder
+        final List<GreptimeDBPreparedRow> rows = buildRows(
+            entity, storageBuilder, model, java.util.Collections.singletonList(schemaInfo), greptimeTs);
+        final Table table = Table.from(schemaInfo.getTableSchema());
+        table.addRow(rows.get(0).getValues());
+        return table;
+    }
+
+    /**
+     * Convert one entity into a main-table row and zero or more normalized AdditionalEntity rows.
+     */
+    @SuppressWarnings("unchecked")
+    public static <T extends StorageData> List<GreptimeDBPreparedRow> buildRows(
+            final T entity,
+            final StorageBuilder<T> storageBuilder,
+            final Model model,
+            final List<SchemaRegistry.WriteSchemaInfo> schemas,
+            final long greptimeTs) {
         final GreptimeDBConverter.ToStorage converter = new GreptimeDBConverter.ToStorage();
         storageBuilder.entity2Storage(entity, converter);
         final Map<String, Object> storageMap = converter.obtain();
+        final List<GreptimeDBPreparedRow> rows = new ArrayList<>();
 
-        // Build row values in schema column order, coercing types to match SDK expectations
+        rows.add(new GreptimeDBPreparedRow(
+            schemas.get(0), buildRow(entity, storageMap, schemas.get(0), greptimeTs, null)));
+        for (int i = 1; i < schemas.size(); i++) {
+            final SchemaRegistry.WriteSchemaInfo schema = schemas.get(i);
+            final Object value = storageMap.get(schema.getListColumn());
+            if (!(value instanceof List)) {
+                continue;
+            }
+            for (final Object item : (List<?>) value) {
+                if (item == null) {
+                    continue;
+                }
+                final String listItem = item.toString();
+                rows.add(new GreptimeDBPreparedRow(
+                    schema, buildRow(entity, storageMap, schema, greptimeTs, listItem)));
+            }
+        }
+        return rows;
+    }
+
+    private static <T extends StorageData> Object[] buildRow(
+            final T entity,
+            final Map<String, Object> storageMap,
+            final SchemaRegistry.WriteSchemaInfo schemaInfo,
+            final long greptimeTs,
+            final String listItem) {
         final List<String> columnNames = schemaInfo.getColumnNames();
         final List<DataType> dataTypes = schemaInfo.getDataTypes();
         final Object[] row = new Object[columnNames.size()];
@@ -68,16 +111,14 @@ public final class GreptimeDBTableBuilder {
             if ("greptime_ts".equals(colName)) {
                 row[i] = greptimeTs;
             } else if ("id".equals(colName)) {
-                // Synthetic id: computed by StorageData, not part of StorageBuilder output
                 row[i] = entity.id().build();
+            } else if (colName.equals(schemaInfo.getListColumn())) {
+                row[i] = listItem;
             } else {
                 row[i] = coerceValue(storageMap.get(colName), expectedType);
             }
         }
-
-        final Table table = Table.from(schemaInfo.getTableSchema());
-        table.addRow(row);
-        return table;
+        return row;
     }
 
     /**

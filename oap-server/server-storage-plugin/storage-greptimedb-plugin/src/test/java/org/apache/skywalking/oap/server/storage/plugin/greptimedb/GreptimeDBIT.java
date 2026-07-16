@@ -27,19 +27,27 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
+import org.apache.skywalking.oap.server.core.analysis.IDManager;
 import org.apache.skywalking.oap.server.core.analysis.Layer;
+import org.apache.skywalking.oap.server.core.analysis.manual.searchtag.Tag;
+import org.apache.skywalking.oap.server.core.analysis.manual.segment.SegmentRecord;
 import org.apache.skywalking.oap.server.core.analysis.manual.service.ServiceTraffic;
 import org.apache.skywalking.oap.server.core.management.ui.template.UITemplate;
 import org.apache.skywalking.oap.server.core.profiling.continuous.storage.ContinuousProfilingPolicy;
+import org.apache.skywalking.oap.server.core.profiling.ebpf.storage.EBPFProfilingScheduleRecord;
 import org.apache.skywalking.oap.server.core.query.PointOfTime;
 import org.apache.skywalking.oap.server.core.query.enumeration.Order;
 import org.apache.skywalking.oap.server.core.query.enumeration.Scope;
@@ -48,10 +56,15 @@ import org.apache.skywalking.oap.server.core.query.input.DashboardSetting;
 import org.apache.skywalking.oap.server.core.query.input.Duration;
 import org.apache.skywalking.oap.server.core.query.input.Entity;
 import org.apache.skywalking.oap.server.core.query.input.MetricsCondition;
+import org.apache.skywalking.oap.server.core.query.type.EBPFProfilingSchedule;
 import org.apache.skywalking.oap.server.core.query.type.KVInt;
 import org.apache.skywalking.oap.server.core.query.type.Logs;
 import org.apache.skywalking.oap.server.core.query.type.MetricsValues;
+import org.apache.skywalking.oap.server.core.query.type.QueryOrder;
 import org.apache.skywalking.oap.server.core.query.type.Service;
+import org.apache.skywalking.oap.server.core.query.type.TraceBrief;
+import org.apache.skywalking.oap.server.core.query.type.TraceState;
+import org.apache.skywalking.oap.server.core.storage.StorageException;
 import org.apache.skywalking.oap.server.core.storage.annotation.Column;
 import org.apache.skywalking.oap.server.core.storage.annotation.ValueColumnMetadata;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
@@ -59,12 +72,18 @@ import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.model.StorageManipulationOpt;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBContinuousProfilingPolicyDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBEBPFProfilingScheduleDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBInsertRequest;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBLogQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBManagementDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetadataQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetricsDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetricsQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBPreparedRow;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTableBuilder;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTraceQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBUITemplateManagementDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBZipkinQueryDAO;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
@@ -72,10 +91,15 @@ import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import zipkin2.Span;
+import zipkin2.storage.QueryRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @Slf4j
 @Testcontainers
@@ -98,6 +122,7 @@ class GreptimeDBIT {
     private GreptimeDBStorageConfig config;
     private GreptimeDBTableInstaller installer;
     private GreptimeDBSearchableTagColumns tagColumns;
+    private SchemaRegistry schemaRegistry;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -111,10 +136,11 @@ class GreptimeDBIT {
 
         final ModuleManager moduleManager = TestModels.mockModuleManager(
             Set.of("http.method", "http.status_code", "db.type"), "", "");
-        tagColumns = new GreptimeDBSearchableTagColumns(moduleManager, config);
+        tagColumns = new GreptimeDBSearchableTagColumns(moduleManager);
+        schemaRegistry = new SchemaRegistry(config);
         client = new GreptimeDBStorageClient(config);
         client.connect();
-        installer = new GreptimeDBTableInstaller(client, moduleManager, config);
+        installer = new GreptimeDBTableInstaller(client, moduleManager, config, schemaRegistry);
     }
 
     @Test
@@ -257,6 +283,46 @@ class GreptimeDBIT {
     }
 
     @Test
+    void compositeSeriesIdShouldDefineMetricDeduplicationIdentity() throws Exception {
+        final Model model = TestModels.metricsModel(
+            "relation_metric", DownSampling.Minute,
+            Arrays.asList(
+                TestModels.seriesIdCol("component_id", int.class, 1),
+                TestModels.seriesIdCol("entity_id", String.class, 0),
+                TestModels.col("value", long.class, true, 0)
+            ));
+        installer.createTable(model);
+        final SchemaRegistry.WriteSchemaInfo schema = schemaRegistry.getWriteSchema(model);
+        final long timestamp = 1_704_067_200_000L;
+
+        writeTableRow(schema, "id-1", 1, "entity-1", 10L, timestamp);
+        writeTableRow(schema, "id-2", 1, "entity-1", 20L, timestamp);
+        writeTableRow(schema, "id-3", 2, "entity-1", 30L, timestamp);
+
+        try (Connection conn = client.getConnection();
+             Statement statement = conn.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                 "SELECT component_id, value FROM relation_metric_minute "
+                     + "WHERE entity_id = 'entity-1' ORDER BY component_id")) {
+            assertTrue(resultSet.next());
+            assertEquals(1, resultSet.getInt("component_id"));
+            assertEquals(20L, resultSet.getLong("value"));
+            assertTrue(resultSet.next());
+            assertEquals(2, resultSet.getInt("component_id"));
+            assertEquals(30L, resultSet.getLong("value"));
+            assertFalse(resultSet.next());
+        }
+    }
+
+    private void writeTableRow(final SchemaRegistry.WriteSchemaInfo schema,
+                               final Object... values) throws Exception {
+        final Table table = Table.from(schema.getTableSchema());
+        table.addRow(values);
+        final Result<WriteOk, Err> result = client.getGrpcClient().write(table).get(10, TimeUnit.SECONDS);
+        assertTrue(result.isOk(), "row write should succeed: " + result);
+    }
+
+    @Test
     void testIsExistsForNonExistentTable() throws Exception {
         final Model model = TestModels.sampleMetricsModel();
         final GreptimeDBTableInstaller.InstallInfo info =
@@ -274,43 +340,225 @@ class GreptimeDBIT {
     }
 
     @Test
-    void reconcilesMissingInvertedIndexOnExistingFieldTagColumn() throws Exception {
-        final Model model = TestModels.sampleRecordModel();
-        installer.createTable(model);
-        final String table = GreptimeDBConverter.resolveTableName(model);
+    void schemaMismatchShouldFailFastInsteadOfAlteringTheTable() throws Exception {
+        final Model model = TestModels.metricsModel(
+            "strict_schema", DownSampling.Minute,
+            Arrays.asList(
+                TestModels.col("entity_id", String.class),
+                TestModels.col("value", long.class, true, 0)
+            ));
+        try (Connection conn = client.getConnection(); Statement statement = conn.createStatement()) {
+            statement.execute("CREATE TABLE strict_schema_minute ("
+                + "`id` STRING, `entity_id` STRING, `value` STRING, "
+                + "`greptime_ts` TIMESTAMP TIME INDEX, PRIMARY KEY (`id`)"
+                + ") WITH ('append_mode' = 'true', 'ttl' = '7d')");
+        }
 
-        // db.type is a non-PK searchable field tag, so createTable gives it an INVERTED INDEX.
-        assertTrue(invertedIndexedColumns(table).contains("db.type"),
-            "field tag should be inverted-indexed at creation");
-
-        // Simulate a table built by an earlier plain-column version, or an ADD COLUMN whose
-        // SET INVERTED INDEX never ran: strip the index so only the plain column remains.
-        execSql("ALTER TABLE " + table + " MODIFY COLUMN `db.type` UNSET INVERTED INDEX");
-        assertFalse(invertedIndexedColumns(table).contains("db.type"),
-            "index should be stripped for the test setup");
-
-        // Reconciliation keys off index state, not column presence, so it restores the index
-        // instead of reporting the column as already matched.
-        installer.isExists(model, StorageManipulationOpt.withSchemaChange());
-        assertTrue(invertedIndexedColumns(table).contains("db.type"),
-            "reconciliation should restore the missing inverted index");
+        final StorageException error = assertThrows(StorageException.class,
+            () -> installer.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent()));
+        assertTrue(error.getMessage().contains("Drop and recreate"));
+        assertTrue(error.getMessage().contains("type value"));
+        assertTrue(error.getMessage().contains("primary key"));
+        assertTrue(error.getMessage().contains("append_mode"));
     }
 
-    private void execSql(final String sql) throws Exception {
+    @Test
+    void createsAppendOnlyNormalizedTagTableWithSkippingIndex() throws Exception {
+        final Model model = TestModels.sampleRecordModel();
+        installer.createTable(model);
+        final String table = "segment_tag";
+
+        assertTrue(installer.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
+
+        assertTrue(indexedColumns(table, "SKIPPING").contains("tags"));
+        assertTrue(indexedColumns(table, "PRIMARY").isEmpty());
+
+        final SchemaRegistry.WriteSchemaInfo schema = new SchemaRegistry(config)
+            .getWriteSchemas(model).get(1);
+        final Table rows = Table.from(schema.getTableSchema());
+        rows.addRow("segment-1", "http.method=GET", 1_704_067_200_000L);
+        rows.addRow("segment-1", "http.method=GET", 1_704_067_200_000L);
+        final Result<WriteOk, Err> result = client.getGrpcClient().write(rows).get(10, TimeUnit.SECONDS);
+        assertTrue(result.isOk(), "tag write should succeed: " + result);
+
         try (Connection conn = client.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute(sql);
+             Statement stmt = conn.createStatement();
+             ResultSet resultSet = stmt.executeQuery("SELECT count(*) FROM " + table)) {
+            assertTrue(resultSet.next());
+            assertEquals(2, resultSet.getInt(1), "append_mode must retain duplicate tag rows");
         }
     }
 
-    private Set<String> invertedIndexedColumns(final String tableName) throws Exception {
+    @Test
+    void traceTagQueriesShouldMatchEachNormalizedValueIndependently() throws Exception {
+        final Model model = TestModels.sampleRecordModel();
+        installer.createTable(model);
+        final List<SchemaRegistry.WriteSchemaInfo> schemas = schemaRegistry.getWriteSchemas(model);
+        final long timestamp = 1_704_067_200_000L;
+
+        writePreparedRows(GreptimeDBTableBuilder.buildRows(
+            segment("segment-get", "trace-get", "http.method=GET"),
+            new SegmentRecord.Builder(), model, schemas, timestamp));
+        writePreparedRows(GreptimeDBTableBuilder.buildRows(
+            segment("segment-post", "trace-post", "http.method=POST"),
+            new SegmentRecord.Builder(), model, schemas, timestamp));
+
+        final GreptimeDBTraceQueryDAO dao = new GreptimeDBTraceQueryDAO(client, tagColumns);
+        final TraceBrief get = dao.queryBasicTraces(
+            null, 0, 0, null, null, null, null, 10, 0,
+            TraceState.ALL, QueryOrder.BY_START_TIME,
+            Collections.singletonList(new Tag("http.method", "GET")));
+        final TraceBrief post = dao.queryBasicTraces(
+            null, 0, 0, null, null, null, null, 10, 0,
+            TraceState.ALL, QueryOrder.BY_START_TIME,
+            Collections.singletonList(new Tag("http.method", "POST")));
+
+        assertEquals(Collections.singletonList("segment-get"),
+            get.getTraces().stream().map(trace -> trace.getSegmentId()).collect(java.util.stream.Collectors.toList()));
+        assertEquals(Collections.singletonList("segment-post"),
+            post.getTraces().stream().map(trace -> trace.getSegmentId()).collect(java.util.stream.Collectors.toList()));
+    }
+
+    private SegmentRecord segment(final String segmentId, final String traceId, final String tag) {
+        final SegmentRecord record = new SegmentRecord();
+        final String serviceId = IDManager.ServiceID.buildId("service", true);
+        record.setSegmentId(segmentId);
+        record.setTraceId(traceId);
+        record.setServiceId(serviceId);
+        record.setServiceInstanceId("instance-id");
+        record.setEndpointId(IDManager.EndpointID.buildId(serviceId, "endpoint"));
+        record.setStartTime(1_704_067_200_000L);
+        record.setLatency(10);
+        record.setTags(Collections.singletonList(tag));
+        record.setDataBinary(new byte[0]);
+        record.setTimeBucket(20240101000000L);
+        return record;
+    }
+
+    private void writePreparedRows(final List<GreptimeDBPreparedRow> rows) throws Exception {
+        for (final GreptimeDBPreparedRow row : rows) {
+            final Table table = Table.from(row.getSchema().getTableSchema());
+            table.addRow(row.getValues());
+            final Result<WriteOk, Err> result = client.getGrpcClient().write(table).get(10, TimeUnit.SECONDS);
+            assertTrue(result.isOk(), "row write should succeed: " + result);
+        }
+    }
+
+    @Test
+    void zipkinTagSearchShouldDistinguishKeyOnlyFromExactKeyValue() throws Exception {
+        createZipkinTables();
+        final long second = 1_704_067_200_000L;
+        final String getTraceId = "00000000000000000000000000000001";
+        final String postTraceId = "00000000000000000000000000000002";
+        insertZipkinSpan(getTraceId, "0000000000000001", second + 300, "GET");
+        insertZipkinSpan(postTraceId, "0000000000000002", second + 700, "POST");
+
+        final Duration duration = mock(Duration.class);
+        when(duration.getStartTimestamp()).thenReturn(second + 100);
+        when(duration.getEndTimestamp()).thenReturn(second + 900);
+        final GreptimeDBZipkinQueryDAO dao = new GreptimeDBZipkinQueryDAO(client);
+
+        final List<List<Span>> keyOnly = dao.getTraces(
+            QueryRequest.newBuilder()
+                .annotationQuery(Collections.singletonMap("http.method", ""))
+                .spanName("request")
+                .endTs(second + 900)
+                .lookback(800)
+                .limit(10)
+                .build(),
+            duration);
+        final List<List<Span>> exact = dao.getTraces(
+            QueryRequest.newBuilder()
+                .annotationQuery(Collections.singletonMap("http.method", "GET"))
+                .spanName("request")
+                .endTs(second + 900)
+                .lookback(800)
+                .limit(10)
+                .build(),
+            duration);
+
+        assertEquals(Set.of(getTraceId.substring(16), postTraceId.substring(16)), traceIds(keyOnly));
+        assertEquals(Collections.singleton(getTraceId.substring(16)), traceIds(exact));
+    }
+
+    private void createZipkinTables() throws Exception {
+        try (Connection conn = client.getConnection(); Statement statement = conn.createStatement()) {
+            statement.execute("CREATE TABLE zipkin_span ("
+                + "`id` STRING, `trace_id` STRING SKIPPING INDEX, `span_id` STRING, `parent_id` STRING, "
+                + "`name` STRING INVERTED INDEX, `duration` BIGINT, `kind` STRING, "
+                + "`timestamp_millis` BIGINT, `timestamp` BIGINT, "
+                + "`local_endpoint_service_name` STRING INVERTED INDEX, "
+                + "`local_endpoint_ipv4` STRING, `local_endpoint_ipv6` STRING, "
+                + "`local_endpoint_port` INT, `remote_endpoint_service_name` STRING INVERTED INDEX, "
+                + "`remote_endpoint_ipv4` STRING, `remote_endpoint_ipv6` STRING, "
+                + "`remote_endpoint_port` INT, `annotations` STRING, `tags` STRING, "
+                + "`debug` INT, `shared` INT, `greptime_ts` TIMESTAMP TIME INDEX"
+                + ") WITH ('append_mode' = 'true', 'ttl' = '3d')");
+            statement.execute("CREATE TABLE zipkin_query ("
+                + "`id` STRING, `query` STRING SKIPPING INDEX, `greptime_ts` TIMESTAMP TIME INDEX"
+                + ") WITH ('append_mode' = 'true', 'ttl' = '3d')");
+        }
+    }
+
+    private void insertZipkinSpan(final String traceId,
+                                  final String spanId,
+                                  final long timestampMillis,
+                                  final String method) throws Exception {
+        final long bucketTimestamp = timestampMillis - Math.floorMod(timestampMillis, 1000L);
+        try (Connection conn = client.getConnection();
+             PreparedStatement statement = conn.prepareStatement(
+                 "INSERT INTO zipkin_span VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")) {
+            final Object[] values = {
+                spanId, traceId, spanId, null, "request", 100L, "SERVER",
+                timestampMillis, timestampMillis * 1000L, "frontend", null, null, 0,
+                "backend", null, null, 0, "{}", "{\"http.method\":\"" + method + "\"}", 0, 0
+            };
+            for (int i = 0; i < values.length; i++) {
+                statement.setObject(i + 1, values[i]);
+            }
+            statement.setTimestamp(22, new Timestamp(bucketTimestamp), utcCalendar());
+            statement.executeUpdate();
+        }
+        insertZipkinQuery(spanId, "http.method", bucketTimestamp);
+        insertZipkinQuery(spanId, "http.method=" + method, bucketTimestamp);
+    }
+
+    private void insertZipkinQuery(final String id,
+                                   final String query,
+                                   final long timestamp) throws Exception {
+        try (Connection conn = client.getConnection();
+             PreparedStatement statement = conn.prepareStatement(
+                 "INSERT INTO zipkin_query VALUES (?, ?, ?)")) {
+            statement.setString(1, id);
+            statement.setString(2, query);
+            statement.setTimestamp(3, new Timestamp(timestamp), utcCalendar());
+            statement.executeUpdate();
+        }
+    }
+
+    private Calendar utcCalendar() {
+        return Calendar.getInstance(TimeZone.getTimeZone("UTC"));
+    }
+
+    private Set<String> traceIds(final List<List<Span>> traces) {
+        final Set<String> ids = new HashSet<>();
+        for (final List<Span> trace : traces) {
+            if (!trace.isEmpty()) {
+                ids.add(trace.get(0).traceId());
+            }
+        }
+        return ids;
+    }
+
+    private Set<String> indexedColumns(final String tableName, final String indexType) throws Exception {
         final Set<String> columns = new HashSet<>();
         try (Connection conn = client.getConnection();
              PreparedStatement ps = conn.prepareStatement(
                  "SELECT column_name FROM information_schema.statistics "
-                     + "WHERE table_schema = ? AND table_name = ? AND index_type = 'INVERTED'")) {
+                     + "WHERE table_schema = ? AND table_name = ? AND index_type = ?")) {
             ps.setString(1, config.getDatabase());
             ps.setString(2, tableName);
+            ps.setString(3, indexType);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     columns.add(rs.getString(1));
@@ -423,26 +671,35 @@ class GreptimeDBIT {
     // ---- traffic/metadata reads must return the latest row per entity, not one per active minute ----
 
     @Test
-    void testListServicesDedupsPerMinuteRows() throws Exception {
+    void testListServicesDedupsRowsWithinHour() throws Exception {
         final Model model = serviceTrafficModel();
         installer.createTable(model);
-        final SchemaRegistry registry = new SchemaRegistry();
-        final SchemaRegistry.WriteSchemaInfo schemaInfo = registry.getWriteSchema(model);
+        final GreptimeDBMetricsDAO metricsDAO = new GreptimeDBMetricsDAO(
+            client, schemaRegistry, new ServiceTraffic.Builder());
 
         final ServiceTraffic svc = new ServiceTraffic();
         svc.setName("serviceA");
         svc.setServiceId("serviceA-id");
         svc.setLayer(Layer.GENERAL);
 
-        // Same entity persisted in two different minutes: stable id, increasing greptime_ts -> two rows.
-        for (final long ts : new long[] {1_704_067_200_000L, 1_704_067_260_000L}) {
-            final Table table = GreptimeDBTableBuilder.buildTable(
-                svc, new ServiceTraffic.Builder(), model, schemaInfo, ts);
-            final Result<WriteOk, Err> r = client.getGrpcClient().write(table).get(10, TimeUnit.SECONDS);
-            assertTrue(r.isOk(), "traffic write should succeed: " + r);
+        for (final long timeBucket : new long[] {202401010000L, 202401010001L}) {
+            svc.setTimeBucket(timeBucket);
+            final GreptimeDBInsertRequest request = (GreptimeDBInsertRequest)
+                metricsDAO.prepareBatchInsert(model, svc, null);
+            writePreparedRows(request.getRows());
         }
 
-        final GreptimeDBMetadataQueryDAO dao = new GreptimeDBMetadataQueryDAO(client, 5000);
+        try (Connection conn = client.getConnection();
+             Statement statement = conn.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                 "SELECT count(*) FROM service_traffic_minute")) {
+            assertTrue(resultSet.next());
+            assertEquals(1, resultSet.getInt(1),
+                "index-mode metrics must keep one physical row per series and hour");
+        }
+
+        final GreptimeDBMetadataQueryDAO dao = new GreptimeDBMetadataQueryDAO(
+            client, schemaRegistry, 5000);
         final List<Service> services = dao.listServices();
         assertEquals(1, services.size(), "listServices must collapse the per-minute rows to one service");
         assertEquals("serviceA", services.get(0).getName());
@@ -456,7 +713,59 @@ class GreptimeDBIT {
         cols.add(TestModels.col("service_group", String.class));
         cols.add(TestModels.col("layer", Layer.class));
         cols.add(TestModels.col("time_bucket", long.class));
-        return TestModels.metricsModel("service_traffic", DownSampling.Minute, cols);
+        return TestModels.indexModeMetricsModel("service_traffic", DownSampling.Minute, cols);
+    }
+
+    @Test
+    void testEBPFProfilingSchedulesReturnLatestRowAcrossHours() throws Exception {
+        final Model model = ebpfProfilingScheduleModel();
+        installer.createTable(model);
+        final GreptimeDBMetricsDAO metricsDAO = new GreptimeDBMetricsDAO(
+            client, schemaRegistry, new EBPFProfilingScheduleRecord.Builder());
+
+        final EBPFProfilingScheduleRecord record = new EBPFProfilingScheduleRecord();
+        record.setTaskId("task-1");
+        record.setProcessId("process-1");
+        record.setScheduleId("schedule-1");
+        record.setStartTime(1_704_103_200_000L);
+
+        final long[] timeBuckets = {202401011001L, 202401011059L, 202401011100L};
+        final long[] endTimes = {1_704_103_260_000L, 1_704_106_740_000L, 1_704_106_800_000L};
+        for (int i = 0; i < timeBuckets.length; i++) {
+            record.setTimeBucket(timeBuckets[i]);
+            record.setEndTime(endTimes[i]);
+            final GreptimeDBInsertRequest request = (GreptimeDBInsertRequest)
+                metricsDAO.prepareBatchInsert(model, record, null);
+            writePreparedRows(request.getRows());
+        }
+
+        try (Connection conn = client.getConnection();
+             Statement statement = conn.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                 "SELECT count(*) FROM ebpf_profiling_schedule_minute")) {
+            assertTrue(resultSet.next());
+            assertEquals(2, resultSet.getInt(1));
+        }
+
+        final GreptimeDBEBPFProfilingScheduleDAO dao =
+            new GreptimeDBEBPFProfilingScheduleDAO(client, schemaRegistry);
+        final List<EBPFProfilingSchedule> schedules = dao.querySchedules("task-1");
+        assertEquals(1, schedules.size());
+        assertEquals("schedule-1", schedules.get(0).getScheduleId());
+        assertEquals(endTimes[2], schedules.get(0).getEndTime());
+    }
+
+    private Model ebpfProfilingScheduleModel() {
+        final List<ModelColumn> cols = new ArrayList<>();
+        cols.add(TestModels.col(EBPFProfilingScheduleRecord.TASK_ID, String.class));
+        cols.add(TestModels.col(EBPFProfilingScheduleRecord.PROCESS_ID, String.class));
+        cols.add(TestModels.col(EBPFProfilingScheduleRecord.START_TIME, long.class));
+        cols.add(TestModels.col(EBPFProfilingScheduleRecord.END_TIME, long.class));
+        cols.add(TestModels.col(
+            EBPFProfilingScheduleRecord.EBPF_PROFILING_SCHEDULE_ID, String.class));
+        cols.add(TestModels.col("time_bucket", long.class));
+        return TestModels.indexModeMetricsModel(
+            EBPFProfilingScheduleRecord.INDEX_NAME, DownSampling.Minute, cols);
     }
 
     // ---- entity-scoped metrics reads add entity_id/greptime_ts pruning without dropping rows ----
@@ -504,11 +813,15 @@ class GreptimeDBIT {
         final MetricsValues values = dao.readMetricsValues(condition, "value", duration);
 
         final List<KVInt> kvs = values.getValues().getValues();
+        final String actualValues = kvs.stream()
+            .map(kv -> kv.getId() + '=' + kv.getValue())
+            .collect(java.util.stream.Collectors.joining(", "));
         assertEquals(points.size(), kvs.size(),
             "every in-range point must be returned despite the added pruning predicates");
         for (final KVInt kv : kvs) {
             assertTrue(kv.getValue() > 0,
-                "a written point must keep its value, not the default that a wrongly-pruned row would leave");
+                "a written point must keep its value, not the default that a wrongly-pruned row would leave: "
+                    + actualValues);
         }
     }
 

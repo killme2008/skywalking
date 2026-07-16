@@ -56,7 +56,9 @@ import static org.apache.skywalking.oap.server.core.analysis.manual.log.Abstract
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_ID;
 import static org.apache.skywalking.oap.server.core.analysis.manual.log.AbstractLogRecord.TRACE_SEGMENT_ID;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendTimestampCondition;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.appendAdditionalEntityConditions;
 import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setParameters;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
 
 @RequiredArgsConstructor
 public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
@@ -84,61 +86,66 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
         final StringBuilder sql = new StringBuilder();
         final List<Object> params = new ArrayList<>();
 
-        sql.append("select * from ").append(LogRecord.INDEX_NAME);
+        final String main = "l";
+        sql.append("select ").append(main).append(".* from ")
+            .append(LogRecord.INDEX_NAME).append(' ').append(main);
+        boolean searchableTags = true;
+        if (CollectionUtils.isNotEmpty(tags)) {
+            final Set<String> searchable = tagColumns.searchableKeys(LogRecord.INDEX_NAME);
+            searchableTags = tags.stream().allMatch(tag -> searchable.contains(tag.getKey()));
+        }
         sql.append(" where 1=1");
+        if (!searchableTags) {
+            sql.append(" and 1=0");
+        }
 
+        java.sql.Timestamp tagStart = null;
+        java.sql.Timestamp tagEnd = null;
         if (nonNull(duration)) {
             final long startSecondTB = duration.getStartTimeBucketInSec();
             final long endSecondTB = duration.getEndTimeBucketInSec();
             if (startSecondTB != 0 && endSecondTB != 0) {
-                appendTimestampCondition(sql, params, startSecondTB, endSecondTB);
+                appendTimestampCondition(sql, params, main, startSecondTB, endSecondTB);
+                tagStart = toTimestamp(startSecondTB);
+                tagEnd = toTimestamp(endSecondTB);
             }
         }
+        if (searchableTags && CollectionUtils.isNotEmpty(tags)) {
+            appendAdditionalEntityConditions(
+                sql, params, main, LogRecord.ADDITIONAL_TAG_TABLE, LogRecord.TAGS,
+                tags.stream().map(Tag::toString).collect(Collectors.toList()), tagStart, tagEnd);
+        }
         if (StringUtil.isNotEmpty(serviceId)) {
-            sql.append(" and ").append(SERVICE_ID).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(SERVICE_ID).append(" = ?");
             params.add(serviceId);
         }
         if (StringUtil.isNotEmpty(serviceInstanceId)) {
-            sql.append(" and ").append(SERVICE_INSTANCE_ID).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(SERVICE_INSTANCE_ID).append(" = ?");
             params.add(serviceInstanceId);
         }
         if (StringUtil.isNotEmpty(endpointId)) {
-            sql.append(" and ").append(ENDPOINT_ID).append(" = ?");
+            sql.append(" and ").append(main).append('.').append(ENDPOINT_ID).append(" = ?");
             params.add(endpointId);
         }
         if (nonNull(relatedTrace)) {
             if (StringUtil.isNotEmpty(relatedTrace.getTraceId())) {
-                sql.append(" and ").append(TRACE_ID).append(" = ?");
+                sql.append(" and ").append(main).append('.').append(TRACE_ID).append(" = ?");
                 params.add(relatedTrace.getTraceId());
             }
             if (StringUtil.isNotEmpty(relatedTrace.getSegmentId())) {
-                sql.append(" and ").append(TRACE_SEGMENT_ID).append(" = ?");
+                sql.append(" and ").append(main).append('.').append(TRACE_SEGMENT_ID).append(" = ?");
                 params.add(relatedTrace.getSegmentId());
             }
             if (nonNull(relatedTrace.getSpanId())) {
-                sql.append(" and ").append(SPAN_ID).append(" = ?");
+                sql.append(" and ").append(main).append('.').append(SPAN_ID).append(" = ?");
                 params.add(relatedTrace.getSpanId());
-            }
-        }
-
-        // Searchable tags are per-key indexed columns; filter with an equality predicate that pushes down.
-        if (CollectionUtils.isNotEmpty(tags)) {
-            final Set<String> searchable = tagColumns.searchableKeys(LogRecord.INDEX_NAME);
-            for (final Tag tag : tags) {
-                if (!searchable.contains(tag.getKey())) {
-                    // Non-searchable tag has no column; force an empty result (mirrors JDBC/ES).
-                    sql.append(" and 1=0");
-                    continue;
-                }
-                sql.append(" and ").append(GreptimeDBConverter.quoteColumn(tag.getKey())).append(" = ?");
-                params.add(tag.getValue());
             }
         }
 
         // Content keyword search over the FULLTEXT-indexed content column. matches_term is exact
         // word-level matching; lower() on both sides makes it case-insensitive (the FULLTEXT index's
         // case_sensitive option only affects the matches() query path, not matches_term).
-        final String contentColumn = GreptimeDBConverter.quoteColumn(CONTENT);
+        final String contentColumn = main + "." + GreptimeDBConverter.quoteColumn(CONTENT);
         if (CollectionUtils.isNotEmpty(keywordsOfContent)) {
             for (final String keyword : keywordsOfContent) {
                 sql.append(" and matches_term(lower(").append(contentColumn).append("), lower(?))");
@@ -152,7 +159,7 @@ public class GreptimeDBLogQueryDAO implements ILogQueryDAO {
             }
         }
 
-        sql.append(" order by ").append(TIMESTAMP).append(" ")
+        sql.append(" order by ").append(main).append('.').append(TIMESTAMP).append(" ")
            .append(Order.DES.equals(queryOrder) ? "desc" : "asc");
         sql.append(" limit ").append(from + limit);
 

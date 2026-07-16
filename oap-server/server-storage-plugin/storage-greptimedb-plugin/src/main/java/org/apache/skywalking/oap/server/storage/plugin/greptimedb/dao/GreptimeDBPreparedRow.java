@@ -18,31 +18,13 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
 
-import java.util.List;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
-import org.apache.skywalking.oap.server.core.storage.SessionCacheCallback;
-import org.apache.skywalking.oap.server.library.client.request.PrepareRequest;
-import org.apache.skywalking.oap.server.library.client.request.UpdateRequest;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.SchemaRegistry.WriteSchemaInfo;
 
-/**
- * Holds logical rows for a GreptimeDB update.
- * In GreptimeDB with merge_mode='last_row', update is effectively an insert that overwrites.
- */
 @Getter
 @RequiredArgsConstructor
-public class GreptimeDBUpdateRequest implements UpdateRequest, PrepareRequest {
-    private final List<GreptimeDBPreparedRow> rows;
-    private final SessionCacheCallback callback;
-
-    public GreptimeDBUpdateRequest(final List<GreptimeDBPreparedRow> rows) {
-        this(rows, null);
-    }
-
-    @Override
-    public void onUpdateFailure() {
-        if (callback != null) {
-            callback.onUpdateFailure();
-        }
-    }
+public class GreptimeDBPreparedRow {
+    private final WriteSchemaInfo schema;
+    private final Object[] values;
 }

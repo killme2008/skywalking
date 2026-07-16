@@ -23,9 +23,11 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Calendar;
 import java.util.List;
 import org.apache.skywalking.oap.server.core.analysis.TimeBucket;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -143,6 +145,29 @@ class GreptimeDBQueryHelperTest {
         assertTrue(params.isEmpty());
     }
 
+    @Test
+    void additionalEntityConditionsShouldUseCorrelatedExistsWithTimeBounds() {
+        final StringBuilder sql = new StringBuilder("select t.* from segment t where 1=1");
+        final List<Object> params = new ArrayList<>();
+        final Timestamp start = new Timestamp(1_704_067_200_000L);
+        final Timestamp end = new Timestamp(1_704_153_600_000L);
+
+        GreptimeDBQueryHelper.appendAdditionalEntityConditions(
+            sql, params, "t", "segment_tag", "tags",
+            Arrays.asList("http.method=GET", "status_code=200"), start, end);
+
+        final String result = sql.toString();
+        assertTrue(result.contains(
+            "exists (select 1 from segment_tag tag_0 where tag_0.`id` = t.`id`"));
+        assertTrue(result.contains("tag_0.`greptime_ts` = t.`greptime_ts`"));
+        assertTrue(result.contains("tag_0.`tags` = ?"));
+        assertTrue(result.contains("tag_0.`greptime_ts` >= ? and tag_0.`greptime_ts` <= ?"));
+        assertTrue(result.contains(
+            "exists (select 1 from segment_tag tag_1 where tag_1.`id` = t.`id`"));
+        assertEquals(Arrays.asList(
+            "http.method=GET", start, end, "status_code=200", start, end), params);
+    }
+
     // ---- setParameters ----
 
     @Test
@@ -153,7 +178,9 @@ class GreptimeDBQueryHelperTest {
 
         GreptimeDBQueryHelper.setParameters(ps, params);
 
-        verify(ps).setTimestamp(1, ts);
+        final ArgumentCaptor<Calendar> calendar = ArgumentCaptor.forClass(Calendar.class);
+        verify(ps).setTimestamp(Mockito.eq(1), Mockito.eq(ts), calendar.capture());
+        assertEquals("UTC", calendar.getValue().getTimeZone().getID());
     }
 
     @Test
@@ -167,32 +194,7 @@ class GreptimeDBQueryHelperTest {
         verify(ps).setString(1, "hello");
         verify(ps).setLong(2, 42L);
         verify(ps).setInt(3, 7);
-        verify(ps).setTimestamp(4, ts);
+        verify(ps).setTimestamp(Mockito.eq(4), Mockito.eq(ts), Mockito.any(Calendar.class));
     }
 
-    // ---- buildJsonPathMatchExpr ----
-
-    @Test
-    void buildJsonPathMatchExprShouldBuildCorrectExpression() {
-        assertEquals(
-            "$[\"http.method\"] == \"GET\"",
-            GreptimeDBQueryHelper.buildJsonPathMatchExpr("http.method", "GET")
-        );
-    }
-
-    @Test
-    void buildJsonPathMatchExprShouldEscapeQuotes() {
-        assertEquals(
-            "$[\"k\\\"ey\"] == \"v\\\"al\"",
-            GreptimeDBQueryHelper.buildJsonPathMatchExpr("k\"ey", "v\"al")
-        );
-    }
-
-    @Test
-    void buildJsonPathMatchExprShouldEscapeBackslashes() {
-        assertEquals(
-            "$[\"k\\\\ey\"] == \"v\\\\al\"",
-            GreptimeDBQueryHelper.buildJsonPathMatchExpr("k\\ey", "v\\al")
-        );
-    }
 }
