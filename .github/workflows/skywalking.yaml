@@ -1163,16 +1163,33 @@ jobs:
           path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
           overwrite: true
 
-  # GreptimeDB storage e2e. The full e2e-test matrix is gated to apache/skywalking (see its `if`);
-  # this single-case job is the fork's storage-plugin gate and also runs upstream.
+  # GreptimeDB e2e. The full e2e-test matrix is gated to apache/skywalking (see its `if`); this
+  # matrix job is the fork's storage-plugin gate — storage smoke plus the zipkin/log/alarm/profiling
+  # feature suites re-run on GreptimeDB — and also runs upstream.
   e2e-test-greptimedb:
     if: |
       ( always() && ! cancelled() ) &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.oap == 'true')
-    name: Storage GreptimeDB
+    name: E2E GreptimeDB (${{ matrix.case.name }})
     needs: [docker, dist-tar, changes]
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - name: storage
+            file: test/e2e-v2/cases/storage/greptimedb/e2e.yaml
+          - name: zipkin
+            file: test/e2e-v2/cases/zipkin/greptimedb/e2e.yaml
+          - name: log
+            file: test/e2e-v2/cases/log/greptimedb/e2e.yaml
+          - name: alarm
+            file: test/e2e-v2/cases/alarm/greptimedb/e2e.yaml
+          - name: profiling-trace
+            file: test/e2e-v2/cases/profiling/trace/greptimedb/e2e.yaml
+          - name: profiling-pprof
+            file: test/e2e-v2/cases/profiling/pprof/greptimedb/e2e.yaml
     steps:
       - uses: actions/checkout@v6
         with:
@@ -1211,10 +1228,10 @@ jobs:
       - name: Prepare test services
         shell: bash
         run: ./mvnw -B -q -f test/e2e-v2/java-test-service/pom.xml clean flatten:flatten package
-      - name: Storage GreptimeDB
+      - name: E2E GreptimeDB (${{ matrix.case.name }})
         uses: apache/skywalking-infra-e2e@68bbdec303cf2d3df9f2353f970f91938b52f674
         with:
-          e2e-file: $GITHUB_WORKSPACE/test/e2e-v2/cases/storage/greptimedb/e2e.yaml
+          e2e-file: $GITHUB_WORKSPACE/${{ matrix.case.file }}
       - name: Dump container logs
         if: ${{ failure() || cancelled() }}
         run: |
@@ -1229,7 +1246,7 @@ jobs:
         if: ${{ failure() || cancelled() }}
         name: Upload Logs
         with:
-          name: test-logs-greptimedb
+          name: test-logs-greptimedb-${{ matrix.case.name }}
           path: "${{ env.SW_INFRA_E2E_LOG_DIR }}"
           overwrite: true
 
