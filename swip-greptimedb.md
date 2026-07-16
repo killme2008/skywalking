@@ -129,11 +129,10 @@ For step-by-step instructions on running unit tests, E2E tests, and a quick-star
 | Dependency | Version | License |
 |-----------|---------|---------|
 | `io.greptime:ingester-all` | 0.15.0 | Apache-2.0 |
-| `com.mysql:mysql-connector-j` | 9.2.0 | GPL-2.0 with [Universal FOSS Exception](https://oss.oracle.com/licenses/universal-foss-exception/) |
 
 Notes:
 - The GreptimeDB Java SDK's transitive gRPC dependencies are excluded in favor of SkyWalking's existing gRPC version (`grpc-netty-shaded`, `grpc-protobuf`, `grpc-stub`).
-- `mysql-connector-j` is used to connect to GreptimeDB's MySQL-compatible protocol port. The Universal FOSS Exception explicitly permits use in Apache-2.0 licensed projects. That said, the existing JDBC storage plugin takes a different approach — it doesn't bundle any JDBC driver but relies on users providing one at runtime. If bundling `mysql-connector-j` is a concern, we can adopt the same approach and document it as a deployment requirement. Happy to discuss what the community prefers here.
+- MySQL Connector/J is required at runtime but is not included in the source or distribution. Users provide the driver in `oap-libs`, or mount it into `/skywalking/ext-libs` when using Docker. This follows the existing SkyWalking MySQL storage plugin's driver model.
 
 ## Compatibility
 

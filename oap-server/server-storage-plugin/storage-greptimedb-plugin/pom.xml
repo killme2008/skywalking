@@ -28,6 +28,11 @@
     <artifactId>storage-greptimedb-plugin</artifactId>
     <packaging>jar</packaging>
 
+    <properties>
+        <!-- Connector/J is supplied externally for tests and is never redistributed. -->
+        <greptimedb.mysql.driver.path>${project.build.directory}/test-libs/mysql-connector-java-8.0.13.jar</greptimedb.mysql.driver.path>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.skywalking</groupId>
@@ -59,7 +64,7 @@
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- Use SkyWalking's gRPC version (1.70.0) with shaded netty for ingester SDK -->
+        <!-- Use SkyWalking's gRPC version with shaded Netty for the ingester SDK. -->
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-netty-shaded</artifactId>
@@ -72,11 +77,6 @@
         <dependency>
             <groupId>io.grpc</groupId>
             <artifactId>grpc-stub</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.mysql</groupId>
-            <artifactId>mysql-connector-j</artifactId>
-            <version>9.2.0</version>
         </dependency>
         <dependency>
             <groupId>org.apache.skywalking</groupId>
@@ -97,6 +97,11 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <additionalClasspathElements>
+                        <additionalClasspathElement>${greptimedb.mysql.driver.path}</additionalClasspathElement>
+                    </additionalClasspathElements>
+                </configuration>
                 <executions>
                     <execution>
                         <id>verify-integration-tests</id>

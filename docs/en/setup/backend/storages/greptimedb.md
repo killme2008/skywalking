@@ -33,6 +33,23 @@ Key design decisions:
 
 - GreptimeDB v1.1.2 or later
 - Ports: 4001 (gRPC), 4002 (MySQL protocol)
+- MySQL Connector/J. The driver is not included in the SkyWalking source or distribution.
+
+Download MySQL Connector/J separately and make it available to OAP:
+
+- Binary distribution: copy the driver jar to `oap-libs`.
+- Docker: mount the driver jar into `/skywalking/ext-libs`.
+
+For example:
+
+```bash
+docker run --rm \
+  -v /path/to/mysql-connector-j.jar:/skywalking/ext-libs/mysql-connector-j.jar:ro \
+  -e SW_STORAGE=greptimedb \
+  -e SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS=greptimedb:4001 \
+  -e SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS=greptimedb:4002 \
+  apache/skywalking-oap-server:latest
+```
 
 ### Configuration
 

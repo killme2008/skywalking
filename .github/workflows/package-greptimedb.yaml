@@ -14,8 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Fork-only workflow for publishing the SkyWalking server image with the
-# GreptimeDB storage plugin bundled in the distribution.
+# Fork-only workflow for publishing an unofficial downstream OAP image with
+# the GreptimeDB storage plugin bundled in the distribution.
 name: publish-greptimedb-docker
 
 on:
@@ -67,6 +67,11 @@ jobs:
           tar tzf dist/apache-skywalking-apm-bin.tar.gz \
             | grep -q 'oap-libs/storage-greptimedb-plugin' \
             || { echo "greptimedb plugin missing from distribution"; exit 1; }
+          if tar tzf dist/apache-skywalking-apm-bin.tar.gz \
+            | grep -Eq 'oap-libs/(mysql-connector|mysql-connector-j)'; then
+            echo "MySQL Connector/J must not be redistributed" >&2
+            exit 1
+          fi
 
       - name: Resolve image tag
         id: image
@@ -100,7 +105,11 @@ jobs:
       - name: Build and push server image
         env:
           HUB: ghcr.io/${{ github.repository_owner }}
-          OAP_NAME: skywalking-oap-server
+          OAP_NAME: greptimedb-oap
           TAG: ${{ steps.image.outputs.tag }}
           SW_OAP_BASE_IMAGE: eclipse-temurin:17-jre
+          BUILD_ARGS: >-
+            --label "org.opencontainers.image.title=GreptimeDB OAP"
+            --label "org.opencontainers.image.description=Unofficial downstream build based on Apache SkyWalking with GreptimeDB storage support"
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
         run: make push.docker.oap

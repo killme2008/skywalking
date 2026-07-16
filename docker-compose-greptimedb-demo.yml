@@ -43,6 +43,8 @@ services:
     ports:
       - "11800:11800"
       - "12800:12800"
+    volumes:
+      - ${MYSQL_CONNECTOR_J:?Set MYSQL_CONNECTOR_J to the Connector/J jar path}:/skywalking/ext-libs/mysql-connector-j.jar:ro
     networks:
       - demo
     depends_on:

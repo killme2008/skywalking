@@ -61,7 +61,6 @@ jobs:
   dependency-license:
     if: |
       ( always() && ! cancelled() ) &&
-      github.repository == 'apache/skywalking' &&
       ((github.event_name == 'schedule' && github.repository == 'apache/skywalking') || needs.changes.outputs.pom == 'true')
     name: Dependency licenses
     needs: [changes]
@@ -288,12 +287,18 @@ jobs:
           java-version: ${{ matrix.java-version }}
           distribution: temurin
       - name: Integration test
+        env:
+          GREPTIMEDB_MYSQL_DRIVER: /tmp/skywalking-test-libs/mysql-connector-java-8.0.13.jar
         run: |
+          mkdir -p "$(dirname "${GREPTIMEDB_MYSQL_DRIVER}")"
+          test/e2e-v2/script/prepare/setup-oap/download-mysql.sh "$(dirname "${GREPTIMEDB_MYSQL_DRIVER}")"
           # Exclude slow integration tests (run in slow-integration-test). Runtime-rule
           # and BanyanDB storage CRUD are verified end-to-end in the dedicated e2e cases
           # (see test/e2e-v2/cases/runtime-rule/ and test/e2e-v2/cases/banyandb).
-          ./mvnw -B clean integration-test -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow || \
-          ./mvnw -B clean integration-test -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow
+          ./mvnw -B clean integration-test -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow \
+            -Dgreptimedb.mysql.driver.path="${GREPTIMEDB_MYSQL_DRIVER}" || \
+          ./mvnw -B clean integration-test -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow \
+            -Dgreptimedb.mysql.driver.path="${GREPTIMEDB_MYSQL_DRIVER}"
       - name: GreptimeDB storage integration test (gated)
         # The step above swallows IT failures (project-wide failsafe binds only integration-test, not
         # verify). Re-run just the GreptimeDB module through `verify`, where this module's pom binds
@@ -301,7 +306,8 @@ jobs:
         # poms so the ${revision} version resolves for a single-module run.
         run: |
           ./mvnw -B clean verify -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
-            -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip
+            -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip \
+            -Dgreptimedb.mysql.driver.path=/tmp/skywalking-test-libs/mysql-connector-java-8.0.13.jar
 
   # Slow tests
   slow-integration-test:

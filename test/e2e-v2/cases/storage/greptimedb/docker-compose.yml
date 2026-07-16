@@ -48,6 +48,7 @@ services:
     ports:
       - 12800
       - 17128
+    entrypoint: ['sh', '-c', '/download-mysql.sh /skywalking/ext-libs && /skywalking/docker-entrypoint.sh']
     depends_on:
       greptimedb:
         condition: service_healthy

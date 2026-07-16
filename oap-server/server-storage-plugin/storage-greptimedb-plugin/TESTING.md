@@ -7,6 +7,7 @@ This document covers how to try out, test, and develop the GreptimeDB storage pl
 - JDK 17
 - Docker and Docker Compose
 - Go (for E2E tool installation)
+- MySQL Connector/J 8.0.13. The driver is used only for tests and is not included in the distribution.
 
 ## Quick Start Demo
 
@@ -16,6 +17,11 @@ provides a full SkyWalking + GreptimeDB environment. This is the easiest way to 
 ### Step 1: Build
 
 ```bash
+# Download Connector/J outside the source tree.
+mkdir -p /tmp/skywalking-greptimedb
+test/e2e-v2/script/prepare/setup-oap/download-mysql.sh /tmp/skywalking-greptimedb
+export MYSQL_CONNECTOR_J=/tmp/skywalking-greptimedb/mysql-connector-java-8.0.13.jar
+
 # Build the OAP distribution (skip tests)
 ./mvnw clean install -Pbackend,dist -Dmaven.test.skip
 
@@ -125,9 +131,13 @@ queries. Docker must be available.
 Run the same gated integration-test command used by CI:
 
 ```bash
+mkdir -p /tmp/skywalking-greptimedb
+test/e2e-v2/script/prepare/setup-oap/download-mysql.sh /tmp/skywalking-greptimedb
+
 ./mvnw -B clean verify \
   -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
-  -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip
+  -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip \
+  -Dgreptimedb.mysql.driver.path=/tmp/skywalking-greptimedb/mysql-connector-java-8.0.13.jar
 ```
 
 ## E2E Tests
