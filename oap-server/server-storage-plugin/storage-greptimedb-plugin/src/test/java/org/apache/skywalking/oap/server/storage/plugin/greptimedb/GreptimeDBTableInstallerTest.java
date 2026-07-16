@@ -18,12 +18,16 @@
 
 package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
+import org.apache.skywalking.oap.server.core.storage.model.StorageManipulationOpt;
 import org.apache.skywalking.oap.server.library.module.ModuleManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +37,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class GreptimeDBTableInstallerTest {
@@ -194,6 +202,30 @@ class GreptimeDBTableInstallerTest {
         final Model model = TestModels.metricsModel("service_resp_time", DownSampling.Hour, columns);
         final String ddl = installer.buildCreateTableDDL(model);
         assertTrue(ddl.contains("CREATE TABLE IF NOT EXISTS service_resp_time_hour"));
+    }
+
+    @Test
+    void loadsTableNamesOnceAndTracksCreatedTables() throws Exception {
+        final Connection connection = mock(Connection.class);
+        final PreparedStatement statement = mock(PreparedStatement.class);
+        final ResultSet resultSet = mock(ResultSet.class);
+        when(client.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = ?"))
+            .thenReturn(statement);
+        when(statement.executeQuery()).thenReturn(resultSet);
+        when(resultSet.next()).thenReturn(false);
+
+        final Model metrics = TestModels.sampleMetricsModel();
+        assertFalse(installer.isExists(metrics, StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
+
+        installer.createTable(metrics);
+
+        assertTrue(installer.isExists(metrics, StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
+        assertFalse(installer.isExists(
+            TestModels.sampleRecordModel(), StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
+        verify(client, times(1)).getConnection();
+        verify(statement, times(1)).executeQuery();
     }
 
     // ---- selectPrimaryKeyColumns (delegated, but verify installer method) ----
