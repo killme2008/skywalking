@@ -140,7 +140,7 @@ final class TestModels {
 
     static Model noneStreamModel(final String name, final List<ModelColumn> columns) {
         return new Model(
-            name, columns, 4, DownSampling.None,
+            name, columns, 4, DownSampling.Minute,
             false, NoneStream.class, false, false,
             new SQLDatabaseModelExtension(),
             new BanyanDBModelExtension(),

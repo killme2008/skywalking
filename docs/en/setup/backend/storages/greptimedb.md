@@ -18,9 +18,8 @@ The plugin maps SkyWalking data models to GreptimeDB tables:
 | SkyWalking Model | GreptimeDB Mode | Description |
 |------------------|-----------------|-------------|
 | Metrics | `merge_mode='last_row'` | Upsert semantics for aggregated time-series data |
-| Records (traces, logs) | `append_mode='true'` | Append-only for raw event data |
+| Records (traces, logs, profiling tasks) | `append_mode='true'` | Append-only for time-relative record data |
 | Management | `merge_mode='last_row'` | Upsert by `id` for config data |
-| NoneStream | `merge_mode='last_row'` | Upsert by `id` for profiling tasks |
 
 Key design decisions:
 - **Searchable tags stored as normalized rows** in append-only additional tables. Raw `key=value`
@@ -67,7 +66,7 @@ storage:
 | `user` | `SW_STORAGE_GREPTIMEDB_USER` | `""` | Authentication username. |
 | `password` | `SW_STORAGE_GREPTIMEDB_PASSWORD` | `""` | Authentication password. |
 | `metricsTTL` | `SW_STORAGE_GREPTIMEDB_METRICS_TTL` | `7d` | TTL for metrics data (all downsampling levels). |
-| `recordsTTL` | `SW_STORAGE_GREPTIMEDB_RECORDS_TTL` | `3d` | TTL for records (traces, logs, alarms). |
+| `recordsTTL` | `SW_STORAGE_GREPTIMEDB_RECORDS_TTL` | `3d` | TTL for records (traces, logs, alarms, profiling tasks). |
 | `maxJdbcPoolSize` | `SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE` | `10` | Max JDBC connection pool size. |
 | `metadataQueryMaxSize` | `SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE` | `5000` | Max rows for metadata queries (services, instances, endpoints). |
 
@@ -122,5 +121,6 @@ For production cluster deployment, refer to the [GreptimeDB documentation](https
 ### Known Limitations
 
 - **FULLTEXT search**: Log content FULLTEXT search uses English analyzer by default.
+- **Trace V2 query**: SkyWalking currently exposes Trace V2 queries only with BanyanDB storage.
 - **Metadata history**: Current-state metadata has hourly snapshot granularity. Minute-level
   historical presence within the same hour is not preserved.

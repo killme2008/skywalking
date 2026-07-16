@@ -42,12 +42,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
 import org.apache.skywalking.oap.server.core.analysis.IDManager;
 import org.apache.skywalking.oap.server.core.analysis.Layer;
+import org.apache.skywalking.oap.server.core.analysis.TimeBucket;
 import org.apache.skywalking.oap.server.core.analysis.manual.searchtag.Tag;
 import org.apache.skywalking.oap.server.core.analysis.manual.segment.SegmentRecord;
 import org.apache.skywalking.oap.server.core.analysis.manual.service.ServiceTraffic;
 import org.apache.skywalking.oap.server.core.management.ui.template.UITemplate;
 import org.apache.skywalking.oap.server.core.profiling.continuous.storage.ContinuousProfilingPolicy;
 import org.apache.skywalking.oap.server.core.profiling.ebpf.storage.EBPFProfilingScheduleRecord;
+import org.apache.skywalking.oap.server.core.profiling.pprof.storage.PprofTaskRecord;
 import org.apache.skywalking.oap.server.core.query.PointOfTime;
 import org.apache.skywalking.oap.server.core.query.enumeration.Order;
 import org.apache.skywalking.oap.server.core.query.enumeration.Scope;
@@ -60,6 +62,7 @@ import org.apache.skywalking.oap.server.core.query.type.EBPFProfilingSchedule;
 import org.apache.skywalking.oap.server.core.query.type.KVInt;
 import org.apache.skywalking.oap.server.core.query.type.Logs;
 import org.apache.skywalking.oap.server.core.query.type.MetricsValues;
+import org.apache.skywalking.oap.server.core.query.type.PprofTask;
 import org.apache.skywalking.oap.server.core.query.type.QueryOrder;
 import org.apache.skywalking.oap.server.core.query.type.Service;
 import org.apache.skywalking.oap.server.core.query.type.TraceBrief;
@@ -79,6 +82,8 @@ import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDB
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetadataQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetricsDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBMetricsQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBNoneStreamDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBPprofTaskQueryDAO;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBPreparedRow;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTableBuilder;
 import org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBTraceQueryDAO;
@@ -672,6 +677,33 @@ class GreptimeDBIT {
         }
     }
 
+    @Test
+    void testNoneStreamTaskUsesItsRecordTimestamp() throws Exception {
+        final Model model = pprofTaskModel();
+        installer.createTable(model);
+        final GreptimeDBNoneStreamDAO writer = new GreptimeDBNoneStreamDAO(
+            client, schemaRegistry, new PprofTaskRecord.Builder());
+
+        final long createTime = System.currentTimeMillis();
+        final long timeBucket = TimeBucket.getRecordTimeBucket(createTime);
+        final PprofTaskRecord task = new PprofTaskRecord();
+        task.setTaskId(createTime + "_service-1");
+        task.setServiceId("service-1");
+        task.setServiceInstanceIdsFromList(Collections.singletonList("instance-1"));
+        task.setCreateTime(createTime);
+        task.setEvents("HEAP");
+        task.setDuration(1);
+        task.setDumpPeriod(1);
+        task.setTimeBucket(timeBucket);
+        writer.insert(model, task);
+
+        final List<PprofTask> tasks = new GreptimeDBPprofTaskQueryDAO(client)
+            .getTaskList("service-1", timeBucket, timeBucket, 10);
+        assertEquals(1, tasks.size(),
+            "NoneStream task must remain queryable within its record TTL window");
+        assertEquals(task.getTaskId(), tasks.get(0).getId());
+    }
+
     private Model uiTemplateModel() {
         final List<ModelColumn> cols = new ArrayList<>();
         cols.add(TestModels.col("template_id", String.class));
@@ -687,6 +719,19 @@ class GreptimeDBIT {
         cols.add(TestModels.col("uuid", String.class));
         cols.add(TestModels.col("configuration_json", String.class, true, 5000));
         return TestModels.managementModel("continuous_profiling_policy", cols);
+    }
+
+    private Model pprofTaskModel() {
+        final List<ModelColumn> cols = new ArrayList<>();
+        cols.add(TestModels.col(PprofTaskRecord.SERVICE_ID, String.class));
+        cols.add(TestModels.col(PprofTaskRecord.SERVICE_INSTANCE_IDS, String.class));
+        cols.add(TestModels.col(PprofTaskRecord.TASK_ID, String.class));
+        cols.add(TestModels.col(PprofTaskRecord.CREATE_TIME, long.class));
+        cols.add(TestModels.col(PprofTaskRecord.EVENT_TYPES, String.class));
+        cols.add(TestModels.col(PprofTaskRecord.DURATION, int.class));
+        cols.add(TestModels.col(PprofTaskRecord.DUMP_PERIOD, int.class));
+        cols.add(TestModels.col(PprofTaskRecord.TIME_BUCKET, long.class));
+        return TestModels.noneStreamModel(PprofTaskRecord.INDEX_NAME, cols);
     }
 
     // ---- traffic/metadata reads must return the latest row per entity, not one per active minute ----

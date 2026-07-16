@@ -162,12 +162,13 @@ class GreptimeDBConverterTest {
     }
 
     @Test
-    void selectPrimaryKeyColumnsShouldReturnIdForNoneStream() {
+    void selectPrimaryKeyColumnsShouldReturnServiceIdForNoneStream() {
         final List<ModelColumn> columns = new ArrayList<>();
         columns.add(TestModels.col("task_id", String.class));
+        columns.add(TestModels.col("service_id", String.class));
         final Model model = TestModels.noneStreamModel("profile_task", columns);
         final List<String> pk = GreptimeDBConverter.selectPrimaryKeyColumns(model);
-        assertEquals(Collections.singletonList("id"), pk);
+        assertEquals(Collections.singletonList("service_id"), pk);
     }
 
     @Test

@@ -171,7 +171,7 @@ class GreptimeDBTableInstallerTest {
     // ---- DDL: NoneStream model ----
 
     @Test
-    void buildDDLForNoneStreamShouldHaveIdAsPrimaryKey() {
+    void buildDDLForNoneStreamShouldUseRecordStorageSemantics() {
         final List<ModelColumn> columns = new ArrayList<>();
         columns.add(TestModels.col("task_id", String.class));
         columns.add(TestModels.col("service_id", String.class));
@@ -179,9 +179,9 @@ class GreptimeDBTableInstallerTest {
         final Model model = TestModels.noneStreamModel("profile_task", columns);
         final String ddl = installer.buildCreateTableDDL(model);
 
-        assertTrue(ddl.contains("PRIMARY KEY (`id`)"),
-            "NoneStream model should use id as PRIMARY KEY");
-        assertTrue(ddl.contains("'merge_mode' = 'last_row'"));
+        assertTrue(ddl.contains("PRIMARY KEY (`service_id`)"));
+        assertTrue(ddl.contains("'append_mode' = 'true'"));
+        assertTrue(ddl.contains("'ttl' = '3d'"));
     }
 
     // ---- DDL: Metrics with different downsampling ----

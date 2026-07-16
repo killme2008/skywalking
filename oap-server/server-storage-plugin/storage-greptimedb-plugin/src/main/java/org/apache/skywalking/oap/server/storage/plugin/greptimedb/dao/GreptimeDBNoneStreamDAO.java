@@ -48,9 +48,9 @@ public class GreptimeDBNoneStreamDAO implements INoneStreamDAO {
     @SuppressWarnings("unchecked")
     public void insert(final Model model, final NoneStream noneStream) throws IOException {
         final SchemaRegistry.WriteSchemaInfo schemaInfo = schemaRegistry.getWriteSchema(model);
-        // Non-time-series config: constant greptime_ts so re-inserts upsert in place (see MANAGEMENT_TIMESTAMP).
+        final long greptimeTs = GreptimeDBConverter.timeBucketToTimestamp(noneStream.getTimeBucket());
         final Table table = GreptimeDBTableBuilder.buildTable(
-            noneStream, storageBuilder, model, schemaInfo, GreptimeDBConverter.MANAGEMENT_TIMESTAMP);
+            noneStream, storageBuilder, model, schemaInfo, greptimeTs);
         table.complete();
 
         try {

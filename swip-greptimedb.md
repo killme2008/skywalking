@@ -61,10 +61,10 @@ SkyWalking data models are mapped to GreptimeDB tables with the following modes:
 | Data Type | GreptimeDB Mode | TTL Default | Examples |
 |-----------|-----------------|-------------|----------|
 | Metrics | `merge_mode=last_row` | 7d | `service_resp_time`, `service_traffic` |
-| Records (traces, logs, alarms) | `append_mode=true` | 3d | `segment`, `log`, `alarm_record` |
-| Management / NoneStream | `merge_mode=last_row` | no expiry | `ui_template`, `continuous_profiling_policy` |
+| Records (traces, logs, alarms, profiling tasks) | `append_mode=true` | 3d | `segment`, `log`, `pprof_task` |
+| Management | `merge_mode=last_row` | no expiry | `ui_template`, `continuous_profiling_policy` |
 
-Each table has a `greptime_ts TIMESTAMP TIME INDEX` column. Regular time-series rows derive it from the model's time bucket. Current-state metadata metrics marked with BanyanDB's `IndexMode` truncate it to the start of the hour, so `merge_mode=last_row` keeps one physical version per series and hour. Non-time-series management and NoneStream rows use a fixed timestamp so updates overwrite the existing row. Time-range queries use `greptime_ts` for partition and row-group pruning.
+Each table has a `greptime_ts TIMESTAMP TIME INDEX` column. Regular time-series rows, including NoneStream profiling tasks, derive it from the model's time bucket. Current-state metadata metrics marked with BanyanDB's `IndexMode` truncate it to the start of the hour, so `merge_mode=last_row` keeps one physical version per series and hour. Only non-time-series management rows use a fixed timestamp so updates overwrite the existing row. Time-range queries use `greptime_ts` for partition and row-group pruning.
 
 DDL generation, gRPC row encoding, and startup validation use the same generated schema contract. If an existing table differs in columns, types, semantic types, primary keys, indexes, table mode, or TTL, startup fails with an instruction to drop and recreate the table. The plugin does not reconcile an incompatible schema with `ALTER TABLE`.
 

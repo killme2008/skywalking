@@ -119,7 +119,8 @@ Run all plugin unit tests:
 
 `GreptimeDBIT` starts GreptimeDB v1.1.2 with Testcontainers and verifies DDL, schema validation,
 gRPC writes, SQL reads, merge and append modes, normalized tags, Zipkin annotations, metadata
-snapshots, metrics, JDBC frontend failover, and FULLTEXT log queries. Docker must be available.
+snapshots, metrics, NoneStream profiling-task retention, JDBC frontend failover, and FULLTEXT log
+queries. Docker must be available.
 
 Run the same gated integration-test command used by CI:
 
@@ -186,6 +187,8 @@ The test config is at `test/e2e-v2/cases/storage/greptimedb/e2e.yaml`. It verifi
   - Trace listing and detail
   - Tag-based trace search
   - Trace detail by trace ID
+- Dedicated GreptimeDB suites also verify trace profiling and pprof. Trace V2 is excluded because
+  SkyWalking currently supports that query only with BanyanDB storage.
 
 ### Rebuild After Code Changes
 
