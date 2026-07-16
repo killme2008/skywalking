@@ -107,12 +107,26 @@ docker compose -f docker-compose-greptimedb-demo.yml down -v
 
 ## Unit Tests
 
-Run the plugin unit tests (94 tests across 5 test classes):
+Run all plugin unit tests:
 
 ```bash
 ./mvnw test -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
-  -Dtest="GreptimeDBConverterTest,GreptimeDBTableInstallerTest,SchemaRegistryTest,GreptimeDBTableBuilderTest,GreptimeDBQueryHelperTest" \
+  -Dtest="GreptimeDB*Test,SchemaRegistryTest" \
   -Dsurefire.failIfNoSpecifiedTests=false
+```
+
+## Integration Tests
+
+`GreptimeDBIT` starts GreptimeDB v1.1.2 with Testcontainers and verifies DDL, schema validation,
+gRPC writes, SQL reads, merge and append modes, normalized tags, Zipkin annotations, metadata
+snapshots, metrics, and FULLTEXT log queries. Docker must be available.
+
+Run the same gated integration-test command used by CI:
+
+```bash
+./mvnw -B clean verify \
+  -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
+  -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip
 ```
 
 ## E2E Tests

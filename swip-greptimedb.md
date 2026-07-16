@@ -50,9 +50,9 @@ The plugin uses a dual-protocol approach:
 
 ### Why not reuse the existing JDBC plugin?
 
-This was the first thing I tried. The JDBC plugin's `TableHelper` uses static methods (`getTable()`, `getLatestTableForWrite()`, `generateId()`) that are called directly from all DAO implementations. These can't be overridden by subclassing. More fundamentally, the day-suffixed table rotation, the `INSERT ON DUPLICATE KEY UPDATE` pattern, and the separate tag tables are all baked into the JDBC plugin's architecture, and all three are things we specifically want to avoid for GreptimeDB.
+This was the first thing I tried. The JDBC plugin's `TableHelper` uses static methods (`getTable()`, `getLatestTableForWrite()`, `generateId()`) that are called directly from all DAO implementations. These can't be overridden by subclassing. More fundamentally, its day-suffixed table rotation and `INSERT ON DUPLICATE KEY UPDATE` write path do not map cleanly to GreptimeDB's native TTL, TIME INDEX, merge modes, and gRPC ingestion.
 
-The BanyanDB plugin took the same approach — a standalone plugin implementing all DAO interfaces from scratch. Our plugin follows that pattern (49 source files + 7 test files, comparable to BanyanDB's 60 + 2).
+The BanyanDB plugin took the same approach — a standalone plugin implementing all DAO interfaces from scratch. Our plugin follows that pattern.
 
 ### Table mapping
 
@@ -60,43 +60,50 @@ SkyWalking data models are mapped to GreptimeDB tables with the following modes:
 
 | Data Type | GreptimeDB Mode | TTL Default | Examples |
 |-----------|-----------------|-------------|----------|
-| Metrics | `merge_mode=last_row` | 7d | `service_resp_time`, `service_cpm` |
+| Metrics | `merge_mode=last_row` | 7d | `service_resp_time`, `service_traffic` |
 | Records (traces, logs, alarms) | `append_mode=true` | 3d | `segment`, `log`, `alarm_record` |
-| Management / NoneStream | `merge_mode=last_row` | no expiry | `ui_template`, `service_traffic` |
+| Management / NoneStream | `merge_mode=last_row` | no expiry | `ui_template`, `continuous_profiling_policy` |
 
-Each table has a `greptime_ts TIMESTAMP TIME INDEX` column derived from the model's time bucket, enabling partition pruning on time-range queries.
+Each table has a `greptime_ts TIMESTAMP TIME INDEX` column. Regular time-series rows derive it from the model's time bucket. Current-state metadata metrics marked with BanyanDB's `IndexMode` truncate it to the start of the hour, so `merge_mode=last_row` keeps one physical version per series and hour. Non-time-series management and NoneStream rows use a fixed timestamp so updates overwrite the existing row. Time-range queries use `greptime_ts` for partition and row-group pruning.
+
+DDL generation, gRPC row encoding, and startup validation use the same generated schema contract. If an existing table differs in columns, types, semantic types, primary keys, indexes, table mode, or TTL, startup fails with an instruction to drop and recreate the table. The plugin does not reconcile an incompatible schema with `ALTER TABLE`.
 
 ### Index strategy
 
-GreptimeDB supports several index types. Here's how they map to SkyWalking's query patterns:
+GreptimeDB supports several index types. The plugin uses an explicit `(model, column)` allow-list: a secondary index is created only when a query DAO has a matching predicate. Primary keys are reserved for series identity and deduplication rather than used as a general query-index mechanism.
 
-**INVERTED INDEX** — for low-to-medium cardinality columns that appear in WHERE equality/range filters.
+**INVERTED INDEX** — for low-to-medium cardinality columns used in equality filters, including alarm dimensions, event dimensions, and selected Zipkin dimensions.
 
-Example: `AlarmQueryDAO.getAlarm()` filters by `scope`, `layer`, `start_time`. These columns get INVERTED INDEX so the query doesn't scan the full table after partition pruning.
+Example: alarm queries filter by `scope`, `layer`, and `rule_name`. These dimensions get inverted indexes so the query does not scan every row left after time pruning.
 
-**SKIPPING INDEX** (bloom filter) — for high-cardinality columns used in exact-match lookups. Applies to `trace_id`, `segment_id`, and `unique_id`.
+**SKIPPING INDEX** (bloom filter) — for high-cardinality columns used in exact-match lookups. Examples include `trace_id`, `segment_id`, `task_id`, and model-specific entity identifiers.
 
 Example: `TraceQueryDAO.queryByTraceId()` does `WHERE trace_id = ?`. A bloom filter can quickly rule out SST files that don't contain the target trace, without maintaining a full inverted index over millions of unique trace IDs.
 
-**FULLTEXT INDEX** — for long text columns like log content. Created with `FULLTEXT INDEX WITH(analyzer = 'English', case_sensitive = 'false')` on string columns longer than 16383 characters.
+Range-filtered columns such as duration and latency do not get skipping indexes because GreptimeDB's bloom-filter skipping index serves equality predicates. These queries rely on the time index and row-group min/max statistics.
+
+**FULLTEXT INDEX** — explicitly enabled on log content with `FULLTEXT INDEX WITH(analyzer = 'English', case_sensitive = 'false')`.
 
 `LogQueryDAO` wires `keywordsOfContent` / `excludingKeywordsOfContent` to `matches_term(lower(content), lower(?))` over this FULLTEXT index: exact word-level matching, made case-insensitive by applying `lower()` to both the column and the term (the index's `case_sensitive` option only affects the `matches()` query path, not `matches_term`). `supportQueryLogsByKeywords()` returns true.
 
-**Searchable tags as indexed columns** — the JDBC plugin creates separate tag tables (`segment_tag`, `log_tag`, `alarm_record_tag`) and uses INNER JOIN for tag filtering. Instead of a JSON blob (which has no index, so `json_path_match` degrades to a row-by-row scan), each *searchable* tag key (from the `searchableTracesTags` / `searchableLogsTags` / `searchableAlarmTags` whitelists) is promoted to its own indexed column, so tag filtering becomes `` WHERE `http.method` = ? `` and is pushed down:
+**Searchable tags as normalized rows** — list-valued fields are stored in append-only additional tables such as `segment_tag`, `log_tag`, `alarm_record_tag`, and `zipkin_query`. Each list item becomes one row containing the parent `id`, the exact raw value, and the same `greptime_ts` as the main row. The value column has a skipping index; the additional table has no primary key, avoiding high-cardinality deduplication work.
 
 ```sql
 -- Find traces where http.method = GET
-SELECT * FROM segment
-WHERE greptime_ts >= ? AND greptime_ts <= ?
-  AND service_id = ?
-  AND `http.method` = 'GET'
+SELECT main.* FROM segment main
+WHERE main.greptime_ts >= ? AND main.greptime_ts <= ?
+  AND EXISTS (
+    SELECT 1 FROM segment_tag tag
+    WHERE tag.id = main.id
+      AND tag.greptime_ts = main.greptime_ts
+      AND tag.tags = 'http.method=GET'
+  )
 ```
 
-- The column name is the tag key verbatim — GreptimeDB accepts dotted, back-quoted identifiers, so no `.`→`_` mapping and no collision handling is needed.
-- The `primaryKeyTags` config (a subset of the whitelist, default `http.method,http.status_code`) marks the high-frequency keys that join the PRIMARY KEY (low cardinality → row-group pruning). The remaining whitelist tags become field columns with an INVERTED INDEX added at table-creation time.
-- The whitelist is watched at runtime. A field tag whitelisted after table creation is appended via `ALTER TABLE ADD COLUMN` and then gets its INVERTED INDEX via `ALTER TABLE MODIFY COLUMN ... SET INVERTED INDEX`, so it is indexed, not merely queryable. A key newly promoted into `primaryKeyTags`, however, only lands as a plain column — GreptimeDB cannot change an existing table's PRIMARY KEY, so the table must be rebuilt to apply the new primary-key tag.
-- Writes split each `k=v` in `tags`; whitelist keys populate their columns, everything else stays in `dataBinary` (full payload, unsearchable). Reads validate the tag key against the whitelist first (a non-searchable key forces an empty result), mirroring the JDBC/ES plugins.
-- Scope: trace (`segment`), log, alarm. Zipkin (annotation → `query` FULLTEXT column) and tag auto-completion (its own `*_tag_autocomplete` table) are unaffected.
+- Trace, log, and alarm values are stored as exact `key=value` strings. One correlated `EXISTS` predicate is emitted for every requested tag, preserving logical-AND and multi-value semantics without multiplying the main result set.
+- Searchable-tag whitelists validate which keys may be queried; they do not affect table schema. Whitelist changes therefore require no column addition or table rebuild.
+- Zipkin annotation queries use the same normalized layout and preserve the distinction between key-only and exact `key=value` searches.
+- Tag auto-completion continues to use its own storage model.
 
 ### DAO implementations
 
@@ -113,7 +120,7 @@ All 40+ DAO interfaces required by `StorageModule` are implemented, covering:
 
 ### Testing
 
-A full E2E test case at `test/e2e-v2/cases/storage/greptimedb/` using the shared `storage-cases.yaml` verification suite. Tested against GreptimeDB v1.1.2. Unit tests cover type conversion, DDL generation, schema registry, and query helper logic (94 tests total).
+A full E2E test case at `test/e2e-v2/cases/storage/greptimedb/` uses the shared `storage-cases.yaml` verification suite. The module also has Testcontainers integration tests for schema validation, merge and append modes, normalized multi-value tags, Zipkin annotation matching, metadata snapshots, metrics reads, and FULLTEXT log queries. Both suites run against GreptimeDB v1.1.2. Unit tests cover conversion, schema generation, index policy, batch grouping, and query construction.
 
 For step-by-step instructions on running unit tests, E2E tests, and a quick-start demo, see [`TESTING.md`](https://github.com/killme2008/skywalking/blob/feature/greptimedb-plugin/oap-server/server-storage-plugin/storage-greptimedb-plugin/TESTING.md).
 

@@ -25,6 +25,8 @@ The plugin maps SkyWalking data models to GreptimeDB tables:
 Key design decisions:
 - **Searchable tags stored as normalized rows** in append-only additional tables. Raw `key=value`
   values use skipping indexes, and queries use correlated `EXISTS` predicates.
+- **Current-state metadata stored as hourly snapshots**. These metrics retain one physical version
+  per series and hour through `merge_mode='last_row'`.
 - **Native TTL** via `WITH ('ttl' = '...')` table options. No manual history deletion needed.
 - **No date-partitioned tables**. GreptimeDB handles time-based partitioning internally via TIME INDEX.
 
@@ -77,6 +79,10 @@ Searchable-tag whitelist changes do not change the table schema.
 
 Management data (UI templates and continuous-profiling policies) is stored with `ttl = 'forever'` and never expires, so there is no TTL to configure for it.
 
+Tables are created automatically on OAP startup. Existing tables must match the generated column,
+primary-key, index, table-mode, and TTL definitions. The plugin does not alter an incompatible schema;
+drop the mismatched tables and let OAP recreate them.
+
 ### Running GreptimeDB
 
 #### Docker (Standalone)
@@ -86,7 +92,7 @@ docker run -d --name greptimedb \
   -p 4000:4000 \
   -p 4001:4001 \
   -p 4002:4002 \
-  greptime/greptimedb:latest standalone start
+  greptime/greptimedb:v1.1.2 standalone start
 ```
 
 Port 4000 is the HTTP API (used for health checks), 4001 is gRPC, and 4002 is MySQL protocol.
@@ -96,7 +102,7 @@ Port 4000 is the HTTP API (used for health checks), 4001 is gRPC, and 4002 is My
 ```yaml
 services:
   greptimedb:
-    image: greptime/greptimedb:latest
+    image: greptime/greptimedb:v1.1.2
     command: standalone start
     ports:
       - "4000:4000"
@@ -114,3 +120,5 @@ For production cluster deployment, refer to the [GreptimeDB documentation](https
 ### Known Limitations
 
 - **FULLTEXT search**: Log content FULLTEXT search uses English analyzer by default.
+- **Metadata history**: Current-state metadata has hourly snapshot granularity. Minute-level
+  historical presence within the same hour is not preserved.
