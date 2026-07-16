@@ -14,37 +14,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Fork-only workflow: builds a self-contained SkyWalking OAP + UI binary that bundles
-# the GreptimeDB storage plugin, so a tester can run it without building from source.
-# Produces a downloadable tar.gz artifact, and optionally pushes an OAP image to GHCR
-# and/or attaches the tar.gz to a GitHub Release.
-name: package-greptimedb
+# Fork-only workflow for publishing the SkyWalking server image with the
+# GreptimeDB storage plugin bundled in the distribution.
+name: publish-greptimedb-docker
 
 on:
+  push:
+    tags:
+      - "*"
   workflow_dispatch:
     inputs:
       tag:
-        description: "Image tag / release name"
+        description: "Image tag"
         required: true
         default: greptimedb-preview
-      push_image:
-        description: "Build & push OAP image to ghcr.io/<owner>/skywalking-oap-greptimedb"
-        type: boolean
-        default: true
-      create_release:
-        description: "Attach the tar.gz to a GitHub Release on this fork"
-        type: boolean
-        default: false
 
 jobs:
-  package:
-    # Never run on the upstream repo; this is a fork-only packaging pipeline.
+  publish:
     if: github.repository != 'apache/skywalking'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
-      contents: write   # create the Release
-      packages: write   # push to GHCR
+      contents: read
+      packages: write
     env:
       SKIP_TEST: true
     steps:
@@ -67,7 +59,7 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Build distribution (bundles the GreptimeDB storage plugin)
+      - name: Build server distribution
         run: make build.all
 
       - name: Verify the GreptimeDB plugin is inside the tarball
@@ -76,47 +68,39 @@ jobs:
             | grep -q 'oap-libs/storage-greptimedb-plugin' \
             || { echo "greptimedb plugin missing from distribution"; exit 1; }
 
-      - name: Upload distribution tarball
-        uses: actions/upload-artifact@v4
-        with:
-          name: apache-skywalking-apm-bin-greptimedb-${{ inputs.tag }}
-          path: dist/apache-skywalking-apm-bin.tar.gz
-          retention-days: 30
+      - name: Resolve image tag
+        id: image
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+          else
+            tag="${REQUESTED_TAG}"
+          fi
+          if [[ ! "${tag}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid Docker image tag: ${tag}" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
 
       - name: Set up QEMU
-        if: ${{ inputs.push_image }}
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
       - name: Set up Docker Buildx
-        if: ${{ inputs.push_image }}
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       - name: Log in to GHCR
-        if: ${{ inputs.push_image }}
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push OAP image (multi-arch) to GHCR
-        if: ${{ inputs.push_image }}
+      - name: Build and push server image
         env:
           HUB: ghcr.io/${{ github.repository_owner }}
-          OAP_NAME: skywalking-oap-greptimedb
-          TAG: ${{ inputs.tag }}
+          OAP_NAME: skywalking-oap-server
+          TAG: ${{ steps.image.outputs.tag }}
           SW_OAP_BASE_IMAGE: eclipse-temurin:17-jre
         run: make push.docker.oap
-
-      - name: Create GitHub Release with the tarball
-        if: ${{ inputs.create_release }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${{ inputs.tag }}" \
-            dist/apache-skywalking-apm-bin.tar.gz \
-            --repo "${{ github.repository }}" \
-            --title "SkyWalking OAP + GreptimeDB (${{ inputs.tag }})" \
-            --notes "Self-contained SkyWalking OAP/UI binary bundling the GreptimeDB storage plugin. Set SW_STORAGE=greptimedb and the GreptimeDB connection env vars to use it." \
-            --target "${{ github.sha }}" \
-            || gh release upload "${{ inputs.tag }}" dist/apache-skywalking-apm-bin.tar.gz --repo "${{ github.repository }}" --clobber
