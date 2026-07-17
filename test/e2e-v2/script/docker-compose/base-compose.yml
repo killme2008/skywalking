@@ -108,6 +108,26 @@ services:
       retries: 3
       start_period: 40s
 
+  greptimedb:
+    image: greptime/greptimedb:v1.1.2
+    networks:
+      - e2e
+    expose:
+      - 4000
+      - 4001
+      - 4002
+    command:
+      - standalone
+      - start
+      - --http-addr=0.0.0.0:4000
+      - --rpc-bind-addr=0.0.0.0:4001
+      - --mysql-addr=0.0.0.0:4002
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:4000/health"]
+      interval: 5s
+      timeout: 60s
+      retries: 120
+
   provider:
     image: "ghcr.io/apache/skywalking-java/skywalking-java:${SW_AGENT_JAVA_COMMIT}-java${SW_AGENT_JDK_VERSION}"
     volumes:

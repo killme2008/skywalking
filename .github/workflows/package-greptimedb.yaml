@@ -1,0 +1,115 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Fork-only workflow for publishing an unofficial downstream OAP image with
+# the GreptimeDB storage plugin bundled in the distribution.
+name: publish-greptimedb-docker
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag"
+        required: true
+        default: greptimedb-preview
+
+jobs:
+  publish:
+    if: github.repository != 'apache/skywalking'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    env:
+      SKIP_TEST: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - name: Cache local Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Build server distribution
+        run: make build.all
+
+      - name: Verify the GreptimeDB plugin is inside the tarball
+        run: |
+          tar tzf dist/apache-skywalking-apm-bin.tar.gz \
+            | grep -q 'oap-libs/storage-greptimedb-plugin' \
+            || { echo "greptimedb plugin missing from distribution"; exit 1; }
+          if tar tzf dist/apache-skywalking-apm-bin.tar.gz \
+            | grep -Eq 'oap-libs/(mysql-connector|mysql-connector-j)'; then
+            echo "MySQL Connector/J must not be redistributed" >&2
+            exit 1
+          fi
+
+      - name: Resolve image tag
+        id: image
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            tag="${GITHUB_REF_NAME#v}"
+          else
+            tag="${REQUESTED_TAG}"
+          fi
+          if [[ ! "${tag}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid Docker image tag: ${tag}" >&2
+            exit 1
+          fi
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push server image
+        env:
+          HUB: ghcr.io/${{ github.repository_owner }}
+          OAP_NAME: greptimedb-oap
+          TAG: ${{ steps.image.outputs.tag }}
+          SW_OAP_BASE_IMAGE: eclipse-temurin:17-jre
+          BUILD_ARGS: >-
+            --label "org.opencontainers.image.title=GreptimeDB OAP"
+            --label "org.opencontainers.image.description=Unofficial downstream build based on Apache SkyWalking with GreptimeDB storage support"
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
+        run: make push.docker.oap

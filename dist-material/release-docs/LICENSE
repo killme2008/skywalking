@@ -225,6 +225,7 @@ The text of each license is the standard Apache 2.0 license.
     https://mvnrepository.com/artifact/com.linecorp.armeria/armeria-grpc/1.34.2 Apache-2.0
     https://mvnrepository.com/artifact/com.linecorp.armeria/armeria-grpc-protocol/1.34.2 Apache-2.0
     https://mvnrepository.com/artifact/com.linecorp.armeria/armeria-protobuf/1.34.2 Apache-2.0
+    https://mvnrepository.com/artifact/com.netflix.concurrency-limits/concurrency-limits-core/0.3.6 Apache-2.0
     https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp/4.12.0 Apache-2.0
     https://mvnrepository.com/artifact/com.squareup.okio/okio/3.6.0 Apache-2.0
     https://mvnrepository.com/artifact/com.squareup.okio/okio-jvm/3.6.0 Apache-2.0
@@ -269,11 +270,20 @@ The text of each license is the standard Apache 2.0 license.
     https://mvnrepository.com/artifact/io.fabric8/kubernetes-model-scheduling/6.7.1 Apache-2.0
     https://mvnrepository.com/artifact/io.fabric8/kubernetes-model-storageclass/6.7.1 Apache-2.0
     https://mvnrepository.com/artifact/io.fabric8/zjsonpatch/0.3.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/greptimedb-proto/0.9.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/ingester-all/0.15.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/ingester-bulk-protocol/0.15.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/ingester-common/0.15.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/ingester-grpc/0.15.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/ingester-prometheus-metrics/0.15.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/ingester-protocol/0.15.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.greptime/ingester-rpc/0.15.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-api/1.80.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-context/1.80.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-core/1.80.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-grpclb/1.80.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-netty/1.80.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.grpc/grpc-netty-shaded/1.80.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-protobuf/1.80.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-protobuf-lite/1.80.0 Apache-2.0
     https://mvnrepository.com/artifact/io.grpc/grpc-services/1.80.0 Apache-2.0
@@ -312,13 +322,22 @@ The text of each license is the standard Apache 2.0 license.
     https://mvnrepository.com/artifact/io.perfmark/perfmark-api/0.27.0 Apache-2.0
     https://mvnrepository.com/artifact/io.prometheus/simpleclient/0.6.0 Apache-2.0
     https://mvnrepository.com/artifact/io.prometheus/simpleclient_common/0.6.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.prometheus/simpleclient_dropwizard/0.16.0 Apache-2.0
     https://mvnrepository.com/artifact/io.prometheus/simpleclient_hotspot/0.6.0 Apache-2.0
+    https://mvnrepository.com/artifact/io.prometheus/simpleclient_httpserver/0.16.0 Apache-2.0
     https://mvnrepository.com/artifact/io.vavr/vavr/0.10.3 Apache-2.0
     https://mvnrepository.com/artifact/io.vavr/vavr-match/0.10.3 Apache-2.0
     https://mvnrepository.com/artifact/io.zipkin.zipkin2/zipkin/2.24.1 Apache-2.0
     https://mvnrepository.com/artifact/javax.inject/javax.inject/1 Apache-2.0
     https://mvnrepository.com/artifact/joda-time/joda-time/2.10.5 Apache-2.0
     https://mvnrepository.com/artifact/net.jodah/failsafe/2.4.4 Apache-2.0
+    https://mvnrepository.com/artifact/org.apache.arrow/arrow-compression/14.0.2 Apache-2.0
+    https://mvnrepository.com/artifact/org.apache.arrow/arrow-format/14.0.2 Apache-2.0
+    https://mvnrepository.com/artifact/org.apache.arrow/arrow-memory-core/14.0.2 Apache-2.0
+    https://mvnrepository.com/artifact/org.apache.arrow/arrow-memory-netty/14.0.2 Apache-2.0
+    https://mvnrepository.com/artifact/org.apache.arrow/arrow-vector/14.0.2 Apache-2.0
+    https://mvnrepository.com/artifact/org.apache.arrow/flight-core/14.0.2 Apache-2.0
+    https://mvnrepository.com/artifact/org.apache.arrow/flight-grpc/14.0.2 Apache-2.0
     https://mvnrepository.com/artifact/org.apache.commons/commons-compress/1.26.2 Apache-2.0
     https://mvnrepository.com/artifact/org.apache.commons/commons-lang3/3.18.0 Apache-2.0
     https://mvnrepository.com/artifact/org.apache.commons/commons-text/1.4 Apache-2.0
@@ -437,6 +456,14 @@ The following components are provided under the https://opensource.org/licenses/
 The text of each license is also included in licenses/LICENSE-[project].txt.
 
     https://mvnrepository.com/artifact/com.github.luben/zstd-jni/1.5.6-4 https://opensource.org/licenses/BSD-2-Clause;description=BSD 2-Clause License
+
+========================================================================
+https://www.apache.org/licenses/LICENSE-2.0.html licenses
+========================================================================
+The following components are provided under the https://www.apache.org/licenses/LICENSE-2.0.html License. See project link for details.
+The text of each license is also included in licenses/LICENSE-[project].txt.
+
+    https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core/4.2.11 https://www.apache.org/licenses/LICENSE-2.0.html
 
 =======================================================================
 The zipkin-lens.jar dependency has more front-end dependencies in it and the front-end dependencies' licenses

@@ -27,6 +27,12 @@ setup:
       command: bash test/e2e-v2/script/prepare/setup-e2e-shell/install.sh yq
     - name: install swctl
       command: bash test/e2e-v2/script/prepare/setup-e2e-shell/install.sh swctl
+    - name: wait for provider
+      command: >-
+        curl --fail --silent --show-error
+        --connect-timeout 2 --max-time 5
+        --retry 60 --retry-all-errors --retry-delay 1 --retry-max-time 90
+        http://${provider_host}:${provider_9090}/health > /dev/null
 
 trigger:
   action: http

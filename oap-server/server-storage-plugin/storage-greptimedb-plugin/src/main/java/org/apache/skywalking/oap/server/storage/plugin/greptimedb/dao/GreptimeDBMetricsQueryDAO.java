@@ -1,0 +1,293 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ */
+
+package org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao;
+
+import java.io.IOException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import lombok.RequiredArgsConstructor;
+import org.apache.skywalking.oap.server.core.analysis.metrics.DataTable;
+import org.apache.skywalking.oap.server.core.analysis.metrics.Metrics;
+import org.apache.skywalking.oap.server.core.query.PointOfTime;
+import org.apache.skywalking.oap.server.core.query.input.Duration;
+import org.apache.skywalking.oap.server.core.query.input.MetricsCondition;
+import org.apache.skywalking.oap.server.core.query.type.HeatMap;
+import org.apache.skywalking.oap.server.core.query.type.KVInt;
+import org.apache.skywalking.oap.server.core.query.type.KeyValue;
+import org.apache.skywalking.oap.server.core.query.type.MetricsValues;
+import org.apache.skywalking.oap.server.core.storage.annotation.ValueColumnMetadata;
+import org.apache.skywalking.oap.server.core.storage.query.IMetricsQueryDAO;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBConverter;
+import org.apache.skywalking.oap.server.storage.plugin.greptimedb.GreptimeDBStorageClient;
+
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.GREPTIME_TS;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.setTimestamp;
+import static org.apache.skywalking.oap.server.storage.plugin.greptimedb.dao.GreptimeDBQueryHelper.toTimestamp;
+
+@RequiredArgsConstructor
+public class GreptimeDBMetricsQueryDAO implements IMetricsQueryDAO {
+    private final GreptimeDBStorageClient client;
+
+    @Override
+    public MetricsValues readMetricsValues(final MetricsCondition condition,
+                                            final String valueColumnName,
+                                            final Duration duration) throws IOException {
+        final MetricsValues metricsValues = new MetricsValues();
+        final var intValues = metricsValues.getValues();
+        final String tableName = GreptimeDBConverter.resolveMetricsTableName(
+            condition.getName(), duration.getStep());
+
+        final List<PointOfTime> pointOfTimes = duration.assembleDurationPoints();
+        final String entityId = condition.getEntity().buildId();
+        final List<String> ids = pointOfTimes.stream()
+            .map(pointOfTime -> pointOfTime.id(entityId))
+            .collect(Collectors.toList());
+
+        if (ids.isEmpty()) {
+            return metricsValues;
+        }
+
+        final String sql = "select `id`, " + valueColumnName + " from " + tableName
+            + entityScopedWhere(entityId, ids.size());
+
+        try (Connection conn = client.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            bindEntityScoped(ps, entityId, duration, ids);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    final KVInt kv = new KVInt();
+                    kv.setId(rs.getString("id"));
+                    kv.setValue(rs.getLong(valueColumnName));
+                    intValues.addKVInt(kv);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to read metrics values from " + tableName, e);
+        }
+
+        metricsValues.setValues(
+            Util.sortValues(intValues, ids,
+                ValueColumnMetadata.INSTANCE.getDefaultValue(condition.getName()))
+        );
+        return metricsValues;
+    }
+
+    @Override
+    public List<MetricsValues> readLabeledMetricsValues(final MetricsCondition condition,
+                                                         final String valueColumnName,
+                                                         final List<KeyValue> labels,
+                                                         final Duration duration) throws IOException {
+        final String tableName = GreptimeDBConverter.resolveMetricsTableName(
+            condition.getName(), duration.getStep());
+        final Map<String, DataTable> idMap = new HashMap<>();
+
+        final List<PointOfTime> pointOfTimes = duration.assembleDurationPoints();
+        final String entityId = condition.getEntity().buildId();
+        final List<String> ids = pointOfTimes.stream()
+            .map(pointOfTime -> pointOfTime.id(entityId))
+            .collect(Collectors.toList());
+
+        if (ids.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        final String sql = "select `id`, " + valueColumnName + " from " + tableName
+            + entityScopedWhere(entityId, ids.size());
+
+        try (Connection conn = client.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            bindEntityScoped(ps, entityId, duration, ids);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    final String id = rs.getString("id");
+                    final DataTable multipleValues = new DataTable(5);
+                    multipleValues.toObject(rs.getString(valueColumnName));
+                    idMap.put(id, multipleValues);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to read labeled metrics values from " + tableName, e);
+        }
+
+        return Util.sortValues(
+            Util.composeLabelValue(condition.getName(), labels, ids, idMap),
+            ids,
+            ValueColumnMetadata.INSTANCE.getDefaultValue(condition.getName())
+        );
+    }
+
+    @Override
+    public List<MetricsValues> readLabeledMetricsValuesWithoutEntity(final String metricName,
+                                                                      final String valueColumnName,
+                                                                      final List<KeyValue> labels,
+                                                                      final Duration duration) throws IOException {
+        final String tableName = GreptimeDBConverter.resolveMetricsTableName(
+            metricName, duration.getStep());
+        final Map<String, DataTable> idMap = new HashMap<>();
+
+        final String sql = "select `id`, " + valueColumnName + " from " + tableName
+            + " where " + GREPTIME_TS + " >= ? and " + GREPTIME_TS + " <= ?"
+            + " limit " + METRICS_VALUES_WITHOUT_ENTITY_LIMIT;
+
+        try (Connection conn = client.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            final Timestamp startTs = toTimestamp(duration.getStartTimeBucket());
+            final Timestamp endTs = toTimestamp(duration.getEndTimeBucket());
+            setTimestamp(ps, 1, startTs);
+            setTimestamp(ps, 2, endTs);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    final String id = rs.getString("id");
+                    final DataTable multipleValues = new DataTable(rs.getString(valueColumnName));
+                    idMap.put(id, multipleValues);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to read labeled metrics without entity from " + tableName, e);
+        }
+
+        final Map<String, DataTable> result = idMap.entrySet().stream()
+            .limit(METRICS_VALUES_WITHOUT_ENTITY_LIMIT)
+            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        final List<String> ids = new ArrayList<>(result.keySet());
+        return Util.sortValues(
+            Util.composeLabelValue(metricName, labels, ids, result),
+            ids,
+            ValueColumnMetadata.INSTANCE.getDefaultValue(metricName)
+        );
+    }
+
+    @Override
+    public HeatMap readHeatMap(final MetricsCondition condition,
+                                final String valueColumnName,
+                                final Duration duration) throws IOException {
+        final String tableName = GreptimeDBConverter.resolveMetricsTableName(
+            condition.getName(), duration.getStep());
+        final HeatMap heatMap = new HeatMap();
+
+        final List<PointOfTime> pointOfTimes = duration.assembleDurationPoints();
+        final String entityId = condition.getEntity().buildId();
+        final List<String> ids = pointOfTimes.stream()
+            .map(pointOfTime -> pointOfTime.id(entityId))
+            .collect(Collectors.toList());
+
+        if (ids.isEmpty()) {
+            return heatMap;
+        }
+
+        final String sql = "select `id`, " + valueColumnName + " as dataset from " + tableName
+            + entityScopedWhere(entityId, ids.size());
+        final int defaultValue = ValueColumnMetadata.INSTANCE.getDefaultValue(condition.getName());
+
+        try (Connection conn = client.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            bindEntityScoped(ps, entityId, duration, ids);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    heatMap.buildColumn(rs.getString("id"), rs.getString("dataset"), defaultValue);
+                }
+            }
+        } catch (SQLException e) {
+            throw new IOException("Failed to read heat map from " + tableName, e);
+        }
+
+        heatMap.fixMissingColumns(ids, defaultValue);
+        return heatMap;
+    }
+
+    @Override
+    public List<String> listEntityIdsInRange(final String metricName,
+                                             final String valueColumnName,
+                                             final String valueType,
+                                             final Duration duration,
+                                             final int limit) throws IOException {
+        final String tableName = GreptimeDBConverter.resolveMetricsTableName(metricName, duration.getStep());
+        // Distinct entity ids in range, most-recent first. entity_id is the metric PK (tag) and
+        // greptime_ts the time index — both prune. Order by the latest greptime_ts so a wide window
+        // keeps the freshest entities under the row cap.
+        final String sql = "select " + Metrics.ENTITY_ID + ", max(" + GREPTIME_TS + ") as latest"
+            + " from " + tableName
+            + " where " + GREPTIME_TS + " >= ? and " + GREPTIME_TS + " <= ?"
+            + " group by " + Metrics.ENTITY_ID
+            + " order by latest desc"
+            + " limit " + limit;
+
+        final List<String> entityIds = new ArrayList<>();
+        try (Connection conn = client.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            setTimestamp(ps, 1, toTimestamp(duration.getStartTimeBucket()));
+            setTimestamp(ps, 2, toTimestamp(duration.getEndTimeBucket()));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    entityIds.add(rs.getString(Metrics.ENTITY_ID));
+                }
+            }
+        } catch (SQLException e) {
+            // An unresolvable metric table (e.g. a foreign metric with no table here) surfaces as an
+            // error, not a silent empty result — an empty list must mean "no entities in range".
+            throw new IOException("Failed to list entity ids in range from " + tableName, e);
+        }
+        return entityIds;
+    }
+
+    /**
+     * WHERE clause for an entity-scoped metrics read: prune by entity_id (the metric PK tag) and the
+     * greptime_ts range (the time index), then pin the exact rows by their synthetic id. Without the
+     * first two predicates GreptimeDB falls back to a full scan of the non-indexed id field.
+     * entityId is null for All-scope metrics (no entity_id dimension), where the id predicate + time
+     * range are the only prunable ones.
+     */
+    private static String entityScopedWhere(final String entityId, final int idCount) {
+        final StringBuilder placeholders = new StringBuilder();
+        for (int i = 0; i < idCount; i++) {
+            if (i > 0) {
+                placeholders.append(',');
+            }
+            placeholders.append('?');
+        }
+        final StringBuilder where = new StringBuilder(" where ");
+        if (entityId != null) {
+            where.append(Metrics.ENTITY_ID).append(" = ? and ");
+        }
+        where.append(GREPTIME_TS).append(" >= ? and ").append(GREPTIME_TS).append(" <= ?")
+             .append(" and `id` in (").append(placeholders).append(")");
+        return where.toString();
+    }
+
+    private static void bindEntityScoped(final PreparedStatement ps, final String entityId,
+                                         final Duration duration, final List<String> ids) throws SQLException {
+        int idx = 1;
+        if (entityId != null) {
+            ps.setString(idx++, entityId);
+        }
+        setTimestamp(ps, idx++, toTimestamp(duration.getStartTimeBucket()));
+        setTimestamp(ps, idx++, toTimestamp(duration.getEndTimeBucket()));
+        for (final String id : ids) {
+            ps.setString(idx++, id);
+        }
+    }
+}
