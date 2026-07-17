@@ -66,9 +66,20 @@ docker run -d \
   -p 4001:4001 \
   -p 4002:4002 \
   greptime/greptimedb:v1.1.2 \
-  standalone start
+  standalone start \
+  --http-addr=0.0.0.0:4000 \
+  --rpc-bind-addr=0.0.0.0:4001 \
+  --mysql-addr=0.0.0.0:4002
 
-until curl --fail --silent http://127.0.0.1:4000/health > /dev/null; do
+for attempt in {1..60}; do
+  if curl --fail --silent http://127.0.0.1:4000/health > /dev/null; then
+    break
+  fi
+  if [ "${attempt}" -eq 60 ]; then
+    echo "GreptimeDB did not become healthy" >&2
+    docker logs greptimedb
+    exit 1
+  fi
   sleep 2
 done
 ```
@@ -94,7 +105,15 @@ docker run -d \
 OAP 启动时会创建 `skywalking` database 和所需 tables。等待 health endpoint 返回成功：
 
 ```bash
-until curl --fail --silent http://127.0.0.1:12800/healthcheck; do
+for attempt in {1..60}; do
+  if curl --fail --silent http://127.0.0.1:12800/healthcheck > /dev/null; then
+    break
+  fi
+  if [ "${attempt}" -eq 60 ]; then
+    echo "OAP did not become healthy" >&2
+    docker logs skywalking-oap
+    exit 1
+  fi
   sleep 5
 done
 ```
