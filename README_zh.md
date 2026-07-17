@@ -39,7 +39,10 @@
 
 ## 快速试用
 
-当前镜像：
+当前 release 提供二进制发行包和多架构容器镜像：
+
+- [二进制发行包](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz)
+- [SHA-512 checksum](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz.sha512)
 
 ```text
 ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1

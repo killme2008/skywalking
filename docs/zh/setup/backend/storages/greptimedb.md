@@ -90,6 +90,7 @@ done
 docker run -d \
   --name skywalking-oap \
   --network skywalking-greptimedb \
+  --network-alias oap \
   -p 11800:11800 \
   -p 12800:12800 \
   -v "${MYSQL_CONNECTOR_J}:/skywalking/ext-libs/mysql-connector-j.jar:ro" \
@@ -117,6 +118,24 @@ for attempt in {1..60}; do
   sleep 5
 done
 ```
+
+在仓库根目录启动官方 Horizon UI。这里直接挂载仓库自带的
+`docker/horizon.yaml`，其中已经配置了 OAP 地址和本地演示账号：
+
+```bash
+docker run -d \
+  --name skywalking-ui \
+  --network skywalking-greptimedb \
+  -p 8080:8081 \
+  -v "${PWD}/docker/horizon.yaml:/app/horizon.yaml:ro" \
+  apache/skywalking-ui:latest
+```
+
+浏览器打开 <http://localhost:8080>，使用 `admin` / `admin` 登录。这个账号只用于
+本地测试，对外开放 UI 前必须修改。
+
+Agent 向 `11800` 端口发送 telemetry data。`12800` 是 OAP query API 和 health
+endpoint，不是 Web UI。Horizon 的配置和部署方式见[英文 UI 配置文档](../../../../en/setup/backend/ui-setup.md)。
 
 如果 OAP 一直没有变为 healthy，检查启动日志：
 

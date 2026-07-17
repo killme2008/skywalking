@@ -14,9 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Fork-only workflow for publishing an unofficial downstream OAP image with
-# the GreptimeDB storage plugin bundled in the distribution.
-name: publish-greptimedb-docker
+# Fork-only workflow for publishing an unofficial downstream OAP distribution
+# and image with the GreptimeDB storage plugin bundled in both.
+name: publish-greptimedb-release
 
 on:
   push:
@@ -24,10 +24,14 @@ on:
       - "*"
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Image tag"
+      release_tag:
+        description: "Existing release tag to rebuild"
         required: true
-        default: greptimedb-preview
+      publish_image:
+        description: "Also rebuild and push the Docker image"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   publish:
@@ -35,15 +39,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
-      contents: read
+      contents: write
       packages: write
     env:
       SKIP_TEST: true
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref }}
           submodules: true
           persist-credentials: false
+
+      - name: Resolve release metadata
+        id: release
+        env:
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            release_tag="${GITHUB_REF_NAME}"
+          else
+            release_tag="${REQUESTED_TAG}"
+          fi
+          image_tag="${release_tag#v}"
+          if [[ ! "${image_tag}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid release tag: ${release_tag}" >&2
+            exit 1
+          fi
+          if ! git show-ref --verify --quiet "refs/tags/${release_tag}"; then
+            echo "Tag not found after checkout: ${release_tag}" >&2
+            exit 1
+          fi
+          tag_commit="$(git rev-list -n 1 "refs/tags/${release_tag}")"
+          head_commit="$(git rev-parse HEAD)"
+          if [[ "${tag_commit}" != "${head_commit}" ]]; then
+            echo "Checked out ${head_commit}, expected tag commit ${tag_commit}" >&2
+            exit 1
+          fi
+          archive="apache-skywalking-apm-${image_tag}-bin.tar.gz"
+          {
+            echo "release_tag=${release_tag}"
+            echo "image_tag=${image_tag}"
+            echo "archive=${archive}"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Cache local Maven repository
         uses: actions/cache@v4
@@ -73,29 +110,34 @@ jobs:
             exit 1
           fi
 
-      - name: Resolve image tag
-        id: image
+      - name: Prepare binary release assets
         env:
-          REQUESTED_TAG: ${{ inputs.tag }}
+          ARCHIVE: ${{ steps.release.outputs.archive }}
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
-            tag="${GITHUB_REF_NAME#v}"
-          else
-            tag="${REQUESTED_TAG}"
-          fi
-          if [[ ! "${tag}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-            echo "Invalid Docker image tag: ${tag}" >&2
-            exit 1
-          fi
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          cp dist/apache-skywalking-apm-bin.tar.gz "dist/${ARCHIVE}"
+          cd dist
+          sha512sum "${ARCHIVE}" > "${ARCHIVE}.sha512"
+
+      - name: Upload binary workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.release.outputs.image_tag }}-binary
+          path: |
+            dist/${{ steps.release.outputs.archive }}
+            dist/${{ steps.release.outputs.archive }}.sha512
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Set up QEMU
+        if: github.event_name == 'push' || inputs.publish_image
         uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3 # v4.1.0
 
       - name: Set up Docker Buildx
+        if: github.event_name == 'push' || inputs.publish_image
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       - name: Log in to GHCR
+        if: github.event_name == 'push' || inputs.publish_image
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
@@ -103,13 +145,35 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push server image
+        if: github.event_name == 'push' || inputs.publish_image
         env:
           HUB: ghcr.io/${{ github.repository_owner }}
           OAP_NAME: greptimedb-oap
-          TAG: ${{ steps.image.outputs.tag }}
+          TAG: ${{ steps.release.outputs.image_tag }}
           SW_OAP_BASE_IMAGE: eclipse-temurin:17-jre
           BUILD_ARGS: >-
             --label "org.opencontainers.image.title=GreptimeDB OAP"
             --label "org.opencontainers.image.description=Unofficial downstream build based on Apache SkyWalking with GreptimeDB storage support"
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}"
         run: make push.docker.oap
+
+      - name: Publish GitHub prerelease assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release.outputs.release_tag }}
+          IMAGE_TAG: ${{ steps.release.outputs.image_tag }}
+          ARCHIVE: ${{ steps.release.outputs.archive }}
+        run: |
+          if ! gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            gh release create "${RELEASE_TAG}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --prerelease \
+              --title "SkyWalking with GreptimeDB ${IMAGE_TAG}" \
+              --notes "Unofficial downstream build of Apache SkyWalking with GreptimeDB storage support. This is not an Apache Software Foundation release."
+          fi
+          gh release upload "${RELEASE_TAG}" \
+            "dist/${ARCHIVE}" \
+            "dist/${ARCHIVE}.sha512" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --clobber

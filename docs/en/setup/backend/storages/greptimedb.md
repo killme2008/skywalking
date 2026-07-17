@@ -90,6 +90,7 @@ Start OAP with GreptimeDB storage enabled:
 docker run -d \
   --name skywalking-oap \
   --network skywalking-greptimedb \
+  --network-alias oap \
   -p 11800:11800 \
   -p 12800:12800 \
   -v "${MYSQL_CONNECTOR_J}:/skywalking/ext-libs/mysql-connector-j.jar:ro" \
@@ -117,6 +118,25 @@ for attempt in {1..60}; do
   sleep 5
 done
 ```
+
+Start the official Horizon UI from the repository root. The mounted
+`docker/horizon.yaml` connects the UI to OAP and defines the local demo account:
+
+```bash
+docker run -d \
+  --name skywalking-ui \
+  --network skywalking-greptimedb \
+  -p 8080:8081 \
+  -v "${PWD}/docker/horizon.yaml:/app/horizon.yaml:ro" \
+  apache/skywalking-ui:latest
+```
+
+Open <http://localhost:8080> and sign in with `admin` / `admin`. This account is
+for local testing only. Change it before exposing the UI outside your machine.
+
+Port `11800` receives agent telemetry. Port `12800` serves the OAP query API and
+health endpoint; it is not the web UI. See [UI setup](../ui-setup.md) for Horizon
+configuration and deployment details.
 
 If OAP does not become healthy, inspect its startup log:
 

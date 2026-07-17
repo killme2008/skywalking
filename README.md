@@ -39,7 +39,10 @@ Current limitations:
 
 ## Try it
 
-The current image is:
+The current release provides a binary distribution and a multi-architecture container image:
+
+- [Binary distribution](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz)
+- [SHA-512 checksum](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz.sha512)
 
 ```text
 ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
