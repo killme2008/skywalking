@@ -1,73 +1,54 @@
-Apache SkyWalking
-==========
+# SkyWalking with GreptimeDB
 
-<img src="http://skywalking.apache.org/assets/logo.svg" alt="Sky Walking logo" height="90px" align="right" />
+<p align="center">
+  <a href="README.md">English</a> | <a href="README_zh.md">简体中文</a>
+</p>
 
-**SkyWalking**: an APM (Application Performance Monitoring) system, especially designed for
-microservices, cloud native and container-based architectures.
+[![Build and publish](https://github.com/killme2008/skywalking/actions/workflows/package-greptimedb.yaml/badge.svg)](https://github.com/killme2008/skywalking/actions/workflows/package-greptimedb.yaml)
+[![Latest tag](https://img.shields.io/github/v/tag/killme2008/skywalking)](https://github.com/killme2008/skywalking/tags)
+[![Container](https://img.shields.io/badge/GHCR-greptimedb--oap-2496ED?logo=docker&logoColor=white)](https://github.com/killme2008/skywalking/pkgs/container/greptimedb-oap)
+[![License](https://img.shields.io/github/license/apache/skywalking)](LICENSE)
 
-[![GitHub stars](https://img.shields.io/github/stars/apache/skywalking.svg?style=for-the-badge&label=Stars&logo=github)](https://github.com/apache/skywalking)
-[![X Follow](https://img.shields.io/badge/2K%2B-follow?style=for-the-badge&logo=X&label=%40ASFSKYWALKING)](https://x.com/AsfSkyWalking)
+An unofficial downstream build of [Apache SkyWalking](https://github.com/apache/skywalking) that adds GreptimeDB as an OAP storage backend.
 
-![GitHub Release](https://img.shields.io/github/v/release/apache/skywalking)
+This fork writes telemetry data through GreptimeDB's gRPC API and uses its MySQL-compatible protocol for queries and DDL. The published OAP image includes the GreptimeDB storage plugin and is tested against SkyWalking's storage E2E suites.
 
-# Abstract
-**SkyWalking** is an open-source APM system that provides monitoring, tracing and diagnosing capabilities for distributed systems in Cloud Native architectures.
+This is a community build for testing and evaluation, not an Apache Software Foundation release.
 
+## Try it
 
-* Distributed Tracing
-  * End-to-end distributed tracing. Service topology analysis, service-centric observability and APIs dashboards.
-* Agents for your stack
-  * Java, .Net Core, PHP, NodeJS, Golang, LUA, Rust, C++, Client JavaScript and Python agents with active development and maintenance.
-* eBPF early adoption
-  * Rover agent works as a monitor and profiler powered by eBPF to monitor Kubernetes deployments and diagnose CPU and network performance.
-* Scaling
-  * 100+ billion telemetry data could be collected and analyzed from one SkyWalking cluster.
-* Mature Telemetry Ecosystems Supported
-  * Metrics, Traces, and Logs from mature ecosystems are supported, e.g. Zipkin, OpenTelemetry, Prometheus, Zabbix, Fluentd
-* Native APM Database
-  * BanyanDB, an observability database, created in 2022, aims to ingest, analyze and store telemetry/observability data.
-* Consistent Metrics Aggregation
-  * SkyWalking native meter format and widely known metrics format(OpenTelemetry, Telegraf, Zabbix, e.g.) are processed through the same script pipeline.
-* Log Management Pipeline
-  * Support log formatting, extract metrics, various sampling policies through script pipeline in high performance.
-* Alerting and Telemetry Pipelines
-  * Support service-centric, deployment-centric, API-centric alarm rule setting. Support forwarding alarms and all telemetry data to 3rd party.
-* AI Power Enabled
-  * Machine Learning (ML) and Artificial Intelligence (AI) analyze observability data to identify patterns and enhance capabilities, such as recognizing HTTP URI patterns and automatically calculating metric baselines for intelligent alerting, improving anomaly detection.
+The current image is:
 
-# Live Demo
+```text
+ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
+```
 
-[<img src="https://skywalking.apache.org/images/home/horizon-3d-map.png" alt="SkyWalking 3D Infrastructure Map"/>](https://skywalking.apache.org/3d-map-app/#/3d/map)
+GreptimeDB v1.1.2 or later is required. MySQL Connector/J is also required but is not included in the image. Connector/J is released under [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE). Apache classifies GPL dependencies, including most exceptions, as [Category X](https://www.apache.org/legal/resolved.html#category-x) and does not allow them in ASF distributions. This fork follows the same distribution rule.
 
-- Explore the [SkyWalking 3D Infrastructure Map interactive demo](https://skywalking.apache.org/3d-map-app/#/3d/map), a 3D visualization of the service topology powered by [Horizon UI](https://github.com/apache/skywalking-horizon-ui).
-- Find the [SkyWalking live demo with native UI and Grafana](https://skywalking.apache.org/#demo), and [screenshots](https://skywalking.apache.org/#arch) on our website.
-- Follow the [showcase](https://skywalking.apache.org/docs/skywalking-showcase/next/readme/) to set up a preview deployment quickly.
+Download the driver separately and mount it into `/skywalking/ext-libs`. The example assumes a GreptimeDB container named `greptimedb` on the same Docker network:
 
-# Documentation
-- [Official documentation](https://skywalking.apache.org/docs/#SkyWalking)
+```bash
+docker run --rm \
+  --network your-network \
+  -p 11800:11800 \
+  -p 12800:12800 \
+  -v /path/to/mysql-connector-j.jar:/skywalking/ext-libs/mysql-connector-j.jar:ro \
+  -e SW_STORAGE=greptimedb \
+  -e SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS=greptimedb:4001 \
+  -e SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS=greptimedb:4002 \
+  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
+```
 
-# Downloads
-Please head to the [releases page](https://skywalking.apache.org/downloads/) to download a release of Apache SkyWalking.
+See the [GreptimeDB storage documentation](docs/en/setup/backend/storages/greptimedb.md) for configuration, deployment, and known limitations.
 
-# Compiling project
-Follow this [document](docs/en/guides/How-to-build.md).
+## Help bring this upstream
 
-# Code of conduct
-This project adheres to the Contributor Covenant [code of conduct](https://www.apache.org/foundation/policies/conduct). By participating, you are expected to uphold this code.
-Please follow the [REPORTING GUIDELINES](https://www.apache.org/foundation/policies/conduct#reporting-guidelines) to report unacceptable behavior.
+I have proposed official GreptimeDB storage support in [apache/skywalking discussion #13722](https://github.com/apache/skywalking/discussions/13722).
 
-# Contact Us
-* Mail list: **dev@skywalking.apache.org**. Mail to `dev-subscribe@skywalking.apache.org`, follow the reply to subscribe the mail list.
-* Send `Request to join SkyWalking slack` mail to the mail list(`dev@skywalking.apache.org`), we will invite you in.
-* For Chinese speaker, send `[CN] Request to join SkyWalking slack` mail to the mail list(`dev@skywalking.apache.org`), we will invite you in.
-* Twitter, [ASFSkyWalking](https://twitter.com/AsfSkyWalking)
-* [bilibili B站 视频](https://space.bilibili.com/390683219)
-* [掘金](https://juejin.cn/user/13673577331607/posts)
-  
-# Our Users
-Hundreds of companies and organizations use SkyWalking for research, production, and commercial purposes.
-Visit our [website](http://skywalking.apache.org/users/) to find the user page.
+If you want to use GreptimeDB with SkyWalking, please add your use case to the discussion. Details such as data volume, retention, deployment model, and required query features are more useful than a simple `+1`.
 
-# License
-[Apache 2.0 License.](LICENSE)
+Please try the image and report implementation or packaging problems in this repository. Use the upstream discussion for product demand and design feedback.
+
+## License
+
+[Apache License 2.0](LICENSE)
