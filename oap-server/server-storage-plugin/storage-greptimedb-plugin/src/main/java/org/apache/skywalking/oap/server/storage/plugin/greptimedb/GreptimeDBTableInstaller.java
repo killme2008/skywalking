@@ -227,7 +227,8 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
                                  final String column,
                                  final String rawType) {
         for (final String token : rawType.toUpperCase(Locale.ROOT).split(",")) {
-            final String type = token.trim().replace(" INDEX", "");
+            // Accept both "INVERTED INDEX" and "INVERTED_INDEX" across GreptimeDB versions.
+            final String type = token.trim().replace('_', ' ').replace(" INDEX", "");
             if ("PRIMARY".equals(type)) {
                 if (!schema.primaryKeys.contains(column)) {
                     schema.primaryKeys.add(column);
@@ -251,6 +252,7 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
                     && (normalized.contains("table not found")
                     || normalized.contains("tablenotfound")
                     || normalized.contains("doesn't exist")
+                    || normalized.contains("does not exist")
                     || normalized.contains("unknown table"))) {
                     return true;
                 }
@@ -285,7 +287,8 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
             .filter(column -> !desiredColumns.containsKey(column))
             .forEach(column -> diff.mismatches.add("unexpected column " + column));
 
-        if (!desired.getPrimaryKeys().equals(actual.primaryKeys)) {
+        // Primary-key column order is reported inconsistently across GreptimeDB versions; match by membership.
+        if (!new HashSet<>(desired.getPrimaryKeys()).equals(new HashSet<>(actual.primaryKeys))) {
             diff.mismatches.add("primary key expected=" + desired.getPrimaryKeys()
                 + " actual=" + actual.primaryKeys);
         }

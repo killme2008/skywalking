@@ -130,6 +130,7 @@ class GreptimeDBIT {
     private GreptimeDBTableInstaller installer;
     private GreptimeDBSearchableTagColumns tagColumns;
     private SchemaRegistry schemaRegistry;
+    private ModuleManager moduleManager;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -140,7 +141,7 @@ class GreptimeDBIT {
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
 
-        final ModuleManager moduleManager = TestModels.mockModuleManager(
+        moduleManager = TestModels.mockModuleManager(
             Set.of("http.method", "http.status_code", "db.type"), "", "");
         tagColumns = new GreptimeDBSearchableTagColumns(moduleManager);
         schemaRegistry = new SchemaRegistry(config);
@@ -241,6 +242,24 @@ class GreptimeDBIT {
              ResultSet rs = stmt.executeQuery("SHOW TABLES LIKE 'service_resp_time_minute'")) {
             assertTrue(rs.next());
         }
+    }
+
+    @Test
+    void isExistsShouldMatchMultiColumnPrimaryKeyRegardlessOfColumnOrder() throws Exception {
+        // seriesID order (b_id, a_id) reverses the column order, so legacy GreptimeDB reports
+        // the primary key in a different order; isExists must match by membership, not order.
+        final List<ModelColumn> columns = new ArrayList<>();
+        columns.add(TestModels.seriesIdCol("a_id", String.class, 1));
+        columns.add(TestModels.seriesIdCol("b_id", String.class, 0));
+        columns.add(TestModels.col("value", long.class, true, 0));
+        final Model model = TestModels.metricsModel("mc_pk_metric", DownSampling.Minute, columns);
+        installer.createTable(model);
+
+        // A fresh installer has no cached snapshot, forcing a real read from information_schema.
+        final GreptimeDBTableInstaller reader = new GreptimeDBTableInstaller(
+            client, moduleManager, config, schemaRegistry);
+        assertTrue(reader.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist(),
+            "Multi-column primary key must round-trip regardless of reported column order");
     }
 
     @Test
