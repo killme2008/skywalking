@@ -15,6 +15,23 @@
 
 这是供社区测试和验证的构建，不是 Apache Software Foundation 的正式发行版。
 
+## 支持范围
+
+| 领域 | 当前能力 |
+| --- | --- |
+| Metrics | 支持 SkyWalking metrics 写入和查询，使用 last-row merge 语义和 GreptimeDB 原生 TTL。 |
+| Records | 支持 traces、logs、alarms、Zipkin data、trace profiling 和 pprof profiling。Records 采用 append-only 模式，TTL 可配置。 |
+| Search | 支持按 searchable trace、log、alarm tags 和 Zipkin annotations 精确过滤；通过 `matches_term` 查询日志关键词。 |
+| Management data | 支持 UI templates 和 continuous-profiling policies，不设置 TTL。 |
+| Cluster access | 写入可配置多个 gRPC endpoints；JDBC 可配置多个 frontend endpoints，并通过 Connector/J 提供 load balancing 和 failover。 |
+| Schema lifecycle | OAP 启动时自动建表并校验已有表；schema 不兼容时需要删除后重建。 |
+
+当前限制：
+
+- 日志全文检索使用 English analyzer。
+- SkyWalking Trace V2 query 目前只支持 BanyanDB storage。
+- Current-state metadata 按小时保留快照，不保留同一小时内的分钟级历史。
+
 ## 快速试用
 
 当前镜像：

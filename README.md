@@ -15,6 +15,23 @@ This fork writes telemetry data through GreptimeDB's gRPC API and uses its MySQL
 
 This is a community build for testing and evaluation, not an Apache Software Foundation release.
 
+## What is supported
+
+| Area | Scope |
+| --- | --- |
+| Metrics | SkyWalking metrics ingestion and query, with last-row merge semantics and native TTL. |
+| Records | Traces, logs, alarms, Zipkin data, trace profiling, and pprof profiling. Records are append-only with configurable TTL. |
+| Search | Exact filters on searchable trace, log, and alarm tags and Zipkin annotations. Log keyword search is supported through `matches_term`. |
+| Management data | UI templates and continuous-profiling policies, retained without TTL. |
+| Cluster access | Multiple gRPC write endpoints; multiple JDBC frontend endpoints with Connector/J load balancing and failover. |
+| Schema lifecycle | Tables are created automatically. Existing tables are validated; incompatible schemas must be dropped and recreated. |
+
+Current limitations:
+
+- Log full-text search uses the English analyzer.
+- SkyWalking Trace V2 queries are only available with BanyanDB storage.
+- Current-state metadata keeps hourly snapshots, not minute-level history within an hour.
+
 ## Try it
 
 The current image is:
