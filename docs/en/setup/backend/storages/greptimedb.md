@@ -90,7 +90,6 @@ Start OAP with GreptimeDB storage enabled:
 docker run -d \
   --name skywalking-oap \
   --network skywalking-greptimedb \
-  --network-alias oap \
   -p 11800:11800 \
   -p 12800:12800 \
   -v "${MYSQL_CONNECTOR_J}:/skywalking/ext-libs/mysql-connector-j.jar:ro" \
@@ -119,15 +118,40 @@ for attempt in {1..60}; do
 done
 ```
 
-Start the official Horizon UI from the repository root. The mounted
-`docker/horizon.yaml` connects the UI to OAP and defines the local demo account:
+Create a standalone Horizon config in any directory. The OAP hostname must match
+the OAP container name on the Docker network:
+
+```bash
+export HORIZON_CONFIG="${PWD}/horizon-greptimedb.yaml"
+
+cat > "${HORIZON_CONFIG}" <<'EOF'
+server:
+  host: 0.0.0.0
+  port: 8081
+
+oap:
+  queryUrl: http://skywalking-oap:12800
+  adminUrl: http://skywalking-oap:17128
+  zipkinUrl: http://skywalking-oap:9412/zipkin
+
+auth:
+  backend: local
+  local:
+    users:
+      - username: admin
+        passwordHash: "$argon2id$v=19$m=65536,t=3,p=4$joV9AVlyLS3pqq4mLrYokQ$pJLkTKrz9/LzEH6YaFljdz9k8dyBiryjwSB26Diiz9U"
+        roles: [admin]
+EOF
+```
+
+Start the official Horizon UI on the same Docker network:
 
 ```bash
 docker run -d \
   --name skywalking-ui \
   --network skywalking-greptimedb \
   -p 8080:8081 \
-  -v "${PWD}/docker/horizon.yaml:/app/horizon.yaml:ro" \
+  -v "${HORIZON_CONFIG}:/app/horizon.yaml:ro" \
   apache/skywalking-ui:latest
 ```
 

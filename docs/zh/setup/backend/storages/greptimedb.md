@@ -90,7 +90,6 @@ done
 docker run -d \
   --name skywalking-oap \
   --network skywalking-greptimedb \
-  --network-alias oap \
   -p 11800:11800 \
   -p 12800:12800 \
   -v "${MYSQL_CONNECTOR_J}:/skywalking/ext-libs/mysql-connector-j.jar:ro" \
@@ -119,15 +118,40 @@ for attempt in {1..60}; do
 done
 ```
 
-在仓库根目录启动官方 Horizon UI。这里直接挂载仓库自带的
-`docker/horizon.yaml`，其中已经配置了 OAP 地址和本地演示账号：
+在任意目录创建一份独立的 Horizon 配置。OAP hostname 必须和 Docker network
+中的 OAP container name 一致：
+
+```bash
+export HORIZON_CONFIG="${PWD}/horizon-greptimedb.yaml"
+
+cat > "${HORIZON_CONFIG}" <<'EOF'
+server:
+  host: 0.0.0.0
+  port: 8081
+
+oap:
+  queryUrl: http://skywalking-oap:12800
+  adminUrl: http://skywalking-oap:17128
+  zipkinUrl: http://skywalking-oap:9412/zipkin
+
+auth:
+  backend: local
+  local:
+    users:
+      - username: admin
+        passwordHash: "$argon2id$v=19$m=65536,t=3,p=4$joV9AVlyLS3pqq4mLrYokQ$pJLkTKrz9/LzEH6YaFljdz9k8dyBiryjwSB26Diiz9U"
+        roles: [admin]
+EOF
+```
+
+在同一个 Docker network 中启动官方 Horizon UI：
 
 ```bash
 docker run -d \
   --name skywalking-ui \
   --network skywalking-greptimedb \
   -p 8080:8081 \
-  -v "${PWD}/docker/horizon.yaml:/app/horizon.yaml:ro" \
+  -v "${HORIZON_CONFIG}:/app/horizon.yaml:ro" \
   apache/skywalking-ui:latest
 ```
 
