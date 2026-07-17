@@ -98,6 +98,8 @@ docker run -d \
   -e SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS=greptimedb:4002 \
   -e SW_STORAGE_GREPTIMEDB_DATABASE=skywalking \
   -e SW_HEALTH_CHECKER=default \
+  -e SW_RECEIVER_ZIPKIN=default \
+  -e SW_QUERY_ZIPKIN=default \
   -e "JAVA_OPTS=-Xms1g -Xmx1g" \
   ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
 ```
