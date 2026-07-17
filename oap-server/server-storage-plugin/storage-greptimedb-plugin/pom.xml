@@ -31,6 +31,7 @@
     <properties>
         <!-- Connector/J is supplied externally for tests and is never redistributed. -->
         <greptimedb.mysql.driver.path>${project.build.directory}/test-libs/mysql-connector-java-8.0.13.jar</greptimedb.mysql.driver.path>
+        <greptimedb.test.image>greptime/greptimedb:v1.1.2</greptimedb.test.image>
     </properties>
 
     <dependencies>
@@ -101,6 +102,9 @@
                     <additionalClasspathElements>
                         <additionalClasspathElement>${greptimedb.mysql.driver.path}</additionalClasspathElement>
                     </additionalClasspathElements>
+                    <systemPropertyVariables>
+                        <greptimedb.test.image>${greptimedb.test.image}</greptimedb.test.image>
+                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>

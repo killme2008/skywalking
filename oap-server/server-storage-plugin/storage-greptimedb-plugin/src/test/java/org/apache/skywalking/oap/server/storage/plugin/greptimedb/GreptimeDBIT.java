@@ -112,10 +112,12 @@ class GreptimeDBIT {
     private static final int HTTP_PORT = 4000;
     private static final int GRPC_PORT = 4001;
     private static final int MYSQL_PORT = 4002;
+    private static final String GREPTIMEDB_IMAGE = System.getProperty(
+        "greptimedb.test.image", "greptime/greptimedb:v1.1.2");
 
     @Container
     public GenericContainer<?> greptimeDB = new GenericContainer<>(
-        DockerImageName.parse("greptime/greptimedb:v1.1.2"))
+        DockerImageName.parse(GREPTIMEDB_IMAGE))
         .withCommand("standalone", "start",
             "--http-addr", "0.0.0.0:4000",
             "--rpc-bind-addr", "0.0.0.0:4001",
@@ -128,6 +130,7 @@ class GreptimeDBIT {
     private GreptimeDBTableInstaller installer;
     private GreptimeDBSearchableTagColumns tagColumns;
     private SchemaRegistry schemaRegistry;
+    private ModuleManager moduleManager;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -138,7 +141,7 @@ class GreptimeDBIT {
         config.setMetricsTTL("7d");
         config.setRecordsTTL("3d");
 
-        final ModuleManager moduleManager = TestModels.mockModuleManager(
+        moduleManager = TestModels.mockModuleManager(
             Set.of("http.method", "http.status_code", "db.type"), "", "");
         tagColumns = new GreptimeDBSearchableTagColumns(moduleManager);
         schemaRegistry = new SchemaRegistry(config);
@@ -239,6 +242,24 @@ class GreptimeDBIT {
              ResultSet rs = stmt.executeQuery("SHOW TABLES LIKE 'service_resp_time_minute'")) {
             assertTrue(rs.next());
         }
+    }
+
+    @Test
+    void isExistsShouldMatchMultiColumnPrimaryKeyRegardlessOfColumnOrder() throws Exception {
+        // seriesID order (b_id, a_id) reverses the column order, so legacy GreptimeDB reports
+        // the primary key in a different order; isExists must match by membership, not order.
+        final List<ModelColumn> columns = new ArrayList<>();
+        columns.add(TestModels.seriesIdCol("a_id", String.class, 1));
+        columns.add(TestModels.seriesIdCol("b_id", String.class, 0));
+        columns.add(TestModels.col("value", long.class, true, 0));
+        final Model model = TestModels.metricsModel("mc_pk_metric", DownSampling.Minute, columns);
+        installer.createTable(model);
+
+        // A fresh installer has no cached snapshot, forcing a real read from information_schema.
+        final GreptimeDBTableInstaller reader = new GreptimeDBTableInstaller(
+            client, moduleManager, config, schemaRegistry);
+        assertTrue(reader.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist(),
+            "Multi-column primary key must round-trip regardless of reported column order");
     }
 
     @Test
@@ -579,15 +600,16 @@ class GreptimeDBIT {
     private Set<String> indexedColumns(final String tableName, final String indexType) throws Exception {
         final Set<String> columns = new HashSet<>();
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(
-                 "SELECT column_name FROM information_schema.statistics "
-                     + "WHERE table_schema = ? AND table_name = ? AND index_type = ?")) {
-            ps.setString(1, config.getDatabase());
-            ps.setString(2, tableName);
-            ps.setString(3, indexType);
-            try (ResultSet rs = ps.executeQuery()) {
+             Statement statement = conn.createStatement()) {
+            final String sql = "SHOW INDEX FROM `" + tableName.replace("`", "``") + "`";
+            try (ResultSet rs = statement.executeQuery(sql)) {
                 while (rs.next()) {
-                    columns.add(rs.getString(1));
+                    for (final String token : rs.getString("Key_name").split(",")) {
+                        final String type = token.trim().replace(' ', '_');
+                        if (indexType.equals(type) || type.startsWith(indexType + "_INDEX")) {
+                            columns.add(rs.getString("Column_name"));
+                        }
+                    }
                 }
             }
         }

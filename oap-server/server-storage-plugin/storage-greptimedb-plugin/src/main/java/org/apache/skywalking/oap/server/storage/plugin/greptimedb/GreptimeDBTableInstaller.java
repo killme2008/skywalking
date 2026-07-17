@@ -60,6 +60,10 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
         "SELECT table_name, column_name, index_type, seq_in_index "
             + "FROM information_schema.statistics WHERE table_schema = ? "
             + "ORDER BY table_name, index_name, seq_in_index";
+    private static final String LEGACY_INDEXES_SQL =
+        "SELECT table_name, column_name, constraint_name, ordinal_position "
+            + "FROM information_schema.key_column_usage WHERE table_schema = ? "
+            + "ORDER BY table_name, ordinal_position";
 
     private final GreptimeDBStorageConfig config;
     private final SchemaRegistry schemaRegistry;
@@ -181,27 +185,81 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
             }
         }
 
+        loadIndexes(connection, snapshot);
+        return snapshot;
+    }
+
+    private void loadIndexes(final Connection connection, final SchemaSnapshot snapshot) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(INDEXES_SQL)) {
             statement.setString(1, config.getDatabase());
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
-                    final ActualSchema schema = snapshot.tables.computeIfAbsent(
-                        resultSet.getString(1), ignored -> new ActualSchema());
-                    final String column = resultSet.getString(2);
-                    final String type = resultSet.getString(3).toUpperCase(Locale.ROOT);
-                    if ("PRIMARY".equals(type)) {
-                        schema.primaryKeys.add(column);
-                    } else {
-                        final IndexType indexType = indexType(type);
-                        if (indexType != null) {
-                            schema.indexes.computeIfAbsent(column, ignored -> new HashSet<>())
-                                .add(indexType);
-                        }
-                    }
+                    addIndex(snapshot.tables.computeIfAbsent(
+                        resultSet.getString(1), ignored -> new ActualSchema()),
+                        resultSet.getString(2), resultSet.getString(3));
+                }
+            }
+        } catch (SQLException e) {
+            if (!isMissingStatisticsView(e)) {
+                throw e;
+            }
+            log.info("GreptimeDB does not expose information_schema.statistics; "
+                + "falling back to information_schema.key_column_usage");
+            loadLegacyIndexes(connection, snapshot);
+        }
+    }
+
+    private void loadLegacyIndexes(final Connection connection,
+                                   final SchemaSnapshot snapshot) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(LEGACY_INDEXES_SQL)) {
+            statement.setString(1, config.getDatabase());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    addIndex(snapshot.tables.computeIfAbsent(
+                        resultSet.getString(1), ignored -> new ActualSchema()),
+                        resultSet.getString(2), resultSet.getString(3));
                 }
             }
         }
-        return snapshot;
+    }
+
+    private static void addIndex(final ActualSchema schema,
+                                 final String column,
+                                 final String rawType) {
+        for (final String token : rawType.toUpperCase(Locale.ROOT).split(",")) {
+            // Accept both "INVERTED INDEX" and "INVERTED_INDEX" across GreptimeDB versions.
+            final String type = token.trim().replace('_', ' ').replace(" INDEX", "");
+            if ("PRIMARY".equals(type)) {
+                if (!schema.primaryKeys.contains(column)) {
+                    schema.primaryKeys.add(column);
+                }
+                continue;
+            }
+            final IndexType indexType = indexType(type);
+            if (indexType != null) {
+                schema.indexes.computeIfAbsent(column, ignored -> new HashSet<>()).add(indexType);
+            }
+        }
+    }
+
+    private static boolean isMissingStatisticsView(final SQLException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            final String message = cause.getMessage();
+            if (message != null) {
+                final String normalized = message.toLowerCase(Locale.ROOT);
+                if (normalized.contains("information_schema.statistics")
+                    && (normalized.contains("table not found")
+                    || normalized.contains("tablenotfound")
+                    || normalized.contains("doesn't exist")
+                    || normalized.contains("does not exist")
+                    || normalized.contains("unknown table"))) {
+                    return true;
+                }
+            }
+            cause = cause.getCause();
+        }
+        return false;
     }
 
     private SchemaDiff diff(final GreptimeDBTableSchema desired, final ActualSchema actual) {
@@ -229,7 +287,8 @@ public class GreptimeDBTableInstaller extends ModelInstaller {
             .filter(column -> !desiredColumns.containsKey(column))
             .forEach(column -> diff.mismatches.add("unexpected column " + column));
 
-        if (!desired.getPrimaryKeys().equals(actual.primaryKeys)) {
+        // Primary-key column order is reported inconsistently across GreptimeDB versions; match by membership.
+        if (!new HashSet<>(desired.getPrimaryKeys()).equals(new HashSet<>(actual.primaryKeys))) {
             diff.mismatches.add("primary key expected=" + desired.getPrimaryKeys()
                 + " actual=" + actual.primaryKeys);
         }
