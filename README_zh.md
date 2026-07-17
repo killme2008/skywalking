@@ -50,19 +50,34 @@ ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
 
 需要 GreptimeDB v1.1.2 或更高版本。镜像不包含 MySQL Connector/J。Connector/J 使用 [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE)；Apache 将 GPL 依赖及大多数例外归为 [Category X](https://www.apache.org/legal/resolved.html#category-x)，不允许打进 ASF 发行物。本 fork 沿用同样的分发边界。
 
-请单独下载 Connector/J，并挂载到 `/skywalking/ext-libs`。下面假设同一 Docker network 中已经有名为 `greptimedb` 的容器：
+[Docker 快速开始](docs/zh/setup/backend/storages/greptimedb.md#docker-快速开始)包含完整的启动流程。如果 GreptimeDB 已经作为 `greptimedb` 容器运行在 `skywalking-greptimedb` Docker network 中，请单独下载 Connector/J、挂载到 `/skywalking/ext-libs`，然后启动 OAP：
 
 ```bash
-docker run --rm \
-  --network your-network \
+docker run -d \
+  --name skywalking-oap \
+  --network skywalking-greptimedb \
   -p 11800:11800 \
   -p 12800:12800 \
+  -p 9411:9411 \
   -v /path/to/mysql-connector-j.jar:/skywalking/ext-libs/mysql-connector-j.jar:ro \
   -e SW_STORAGE=greptimedb \
   -e SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS=greptimedb:4001 \
   -e SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS=greptimedb:4002 \
+  -e SW_STORAGE_GREPTIMEDB_DATABASE=skywalking \
+  -e SW_HEALTH_CHECKER=default \
+  -e SW_RECEIVER_ZIPKIN=default \
+  -e SW_QUERY_ZIPKIN=default \
+  -e "JAVA_OPTS=-Xms1g -Xmx1g" \
   ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
 ```
+
+接着按照[启动 Horizon UI](docs/zh/setup/backend/storages/greptimedb.md#启动-horizon-ui)完成 UI 配置，再将带 SkyWalking Agent 的服务连接到 `11800` 端口。
+
+流量进入 OAP 后，可以在 Horizon 中查看 service metrics，以及跨服务和数据库调用的完整 trace：
+
+![Services dashboard](docs/en/setup/backend/images/greptimedb/services-dashboard.png)
+
+![Trace detail](docs/en/setup/backend/images/greptimedb/trace-detail.png)
 
 配置、部署方式和已知限制见 [GreptimeDB 存储文档](docs/zh/setup/backend/storages/greptimedb.md)。
 

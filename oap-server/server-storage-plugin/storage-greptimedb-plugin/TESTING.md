@@ -75,17 +75,21 @@ Open http://localhost:8080 in your browser. After generating some traffic (Step 
 
 It may take 30-60 seconds after the first request for data to appear in the UI.
 
-**Service dashboard** — metrics for both e2e services (Apdex, success rate, response time, load):
+**Service dashboard** — metrics for both smoke services (Apdex, success rate, response time, load):
 
-![Service Dashboard](docs/screenshot-dashboard.png)
+![Service Dashboard](../../../docs/en/setup/backend/images/greptimedb/service-metrics.png)
 
 **Distributed trace** — spans across consumer and provider with timeline:
 
-![Trace Detail](docs/screenshot-trace.png)
+![Trace Detail](../../../docs/en/setup/backend/images/greptimedb/trace-detail.png)
 
-**Log collection** — application logs collected via SkyWalking agent:
+**Log collection** — application logs with links to their traces:
 
-![Log View](docs/screenshot-log.png)
+![Log View](../../../docs/en/setup/backend/images/greptimedb/logs.png)
+
+The current reference screenshots, including services, topology, trace list, and
+trace detail, logs, and alarms, are also included in the
+[GreptimeDB storage guide](../../../docs/en/setup/backend/storages/greptimedb.md#verify-telemetry-in-horizon).
 
 ### Step 5: Query via CLI (Optional)
 

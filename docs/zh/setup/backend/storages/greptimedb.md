@@ -121,6 +121,8 @@ for attempt in {1..60}; do
 done
 ```
 
+#### 启动 Horizon UI
+
 在任意目录创建一份独立的 Horizon 配置。OAP hostname 必须和 Docker network
 中的 OAP container name 一致：
 
@@ -163,6 +165,42 @@ docker run -d \
 
 Agent 向 `11800` 端口发送 telemetry data。`12800` 是 OAP query API 和 health
 endpoint，不是 Web UI。Horizon 的配置和部署方式见[英文 UI 配置文档](../../../../en/setup/backend/ui-setup.md)。
+
+#### 在 Horizon 中验证数据
+
+将 SkyWalking Agent 指向 `127.0.0.1:11800`，然后向被观测服务发送流量。Metrics
+按分钟聚合，通常需要等待一到两个分钟窗口，所有 dashboard 才会出现数据。下面的
+截图来自一个 smoke workload：consumer 调用 provider，provider 再访问 H2。
+
+Services Dashboard 汇总了活跃服务、RPM、延迟、SLA 和当前 topology：
+
+![Services dashboard](../../../../en/setup/backend/images/greptimedb/services-dashboard.png)
+
+选择一个 service，可以检查 traffic、error rate、Apdex、响应时间分位数和 instance metrics：
+
+![Service metrics](../../../../en/setup/backend/images/greptimedb/service-metrics.png)
+
+Topology 中应当同时出现两个 services 及其 database dependency：
+
+![Topology](../../../../en/setup/backend/images/greptimedb/topology.png)
+
+持续发送流量时，Traces 页面应当不断返回成功的 segments：
+
+![Traces](../../../../en/setup/backend/images/greptimedb/traces.png)
+
+打开任意 segment，可以检查跨服务 reference 和 database spans：
+
+![Trace detail](../../../../en/setup/backend/images/greptimedb/trace-detail.png)
+
+如果 Agent 上报 application logs，Logs 页面应当能查询到日志；包含 trace ID 的日志
+还会显示 trace link：
+
+![Logs](../../../../en/setup/backend/images/greptimedb/logs.png)
+
+这里的 smoke workload 每次请求耗时超过一秒，会触发 SkyWalking 默认的响应时间告警。
+Alarms 页面可以验证 alarm records 同样经过 GreptimeDB 写入和查询：
+
+![Alarms](../../../../en/setup/backend/images/greptimedb/alarms.png)
 
 如果 OAP 一直没有变为 healthy，检查启动日志：
 

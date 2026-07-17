@@ -121,6 +121,8 @@ for attempt in {1..60}; do
 done
 ```
 
+#### Start Horizon UI
+
 Create a standalone Horizon config in any directory. The OAP hostname must match
 the OAP container name on the Docker network:
 
@@ -164,6 +166,47 @@ for local testing only. Change it before exposing the UI outside your machine.
 Port `11800` receives agent telemetry. Port `12800` serves the OAP query API and
 health endpoint; it is not the web UI. See [UI setup](../ui-setup.md) for Horizon
 configuration and deployment details.
+
+#### Verify telemetry in Horizon
+
+Point a SkyWalking agent at `127.0.0.1:11800` and send traffic to the instrumented
+service. Metrics are aggregated by minute, so allow one or two minutes for every
+dashboard to populate. The screenshots below were captured from a smoke workload
+with a consumer calling a provider that accesses H2.
+
+The services dashboard summarizes active services, RPM, latency, SLA, and the
+current topology:
+
+![Services dashboard](../images/greptimedb/services-dashboard.png)
+
+Select a service to inspect its traffic, error rate, Apdex, response-time
+percentiles, and instance metrics:
+
+![Service metrics](../images/greptimedb/service-metrics.png)
+
+The topology view should contain both services and their database dependency:
+
+![Topology](../images/greptimedb/topology.png)
+
+The trace page should continuously return successful segments while traffic is
+running:
+
+![Traces](../images/greptimedb/traces.png)
+
+Open a segment to verify the cross-service reference and database spans:
+
+![Trace detail](../images/greptimedb/trace-detail.png)
+
+If the agent reports application logs, the Logs page should return them with
+trace links where a trace ID is present:
+
+![Logs](../images/greptimedb/logs.png)
+
+The smoke workload shown here takes more than one second per request, which
+triggers SkyWalking's default response-time alarms. The Alarms page verifies
+that alarm records are also written to and queried from GreptimeDB:
+
+![Alarms](../images/greptimedb/alarms.png)
 
 If OAP does not become healthy, inspect its startup log:
 

@@ -50,19 +50,34 @@ ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
 
 GreptimeDB v1.1.2 or later is required. MySQL Connector/J is also required but is not included in the image. Connector/J is released under [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE). Apache classifies GPL dependencies, including most exceptions, as [Category X](https://www.apache.org/legal/resolved.html#category-x) and does not allow them in ASF distributions. This fork follows the same distribution rule.
 
-Download the driver separately and mount it into `/skywalking/ext-libs`. The example assumes a GreptimeDB container named `greptimedb` on the same Docker network:
+The [Docker quick start](docs/en/setup/backend/storages/greptimedb.md#docker-quick-start) covers the complete setup. If GreptimeDB is already running as `greptimedb` on the `skywalking-greptimedb` Docker network, download the driver separately, mount it into `/skywalking/ext-libs`, and start OAP with:
 
 ```bash
-docker run --rm \
-  --network your-network \
+docker run -d \
+  --name skywalking-oap \
+  --network skywalking-greptimedb \
   -p 11800:11800 \
   -p 12800:12800 \
+  -p 9411:9411 \
   -v /path/to/mysql-connector-j.jar:/skywalking/ext-libs/mysql-connector-j.jar:ro \
   -e SW_STORAGE=greptimedb \
   -e SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS=greptimedb:4001 \
   -e SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS=greptimedb:4002 \
+  -e SW_STORAGE_GREPTIMEDB_DATABASE=skywalking \
+  -e SW_HEALTH_CHECKER=default \
+  -e SW_RECEIVER_ZIPKIN=default \
+  -e SW_QUERY_ZIPKIN=default \
+  -e "JAVA_OPTS=-Xms1g -Xmx1g" \
   ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
 ```
+
+Continue with [Start Horizon UI](docs/en/setup/backend/storages/greptimedb.md#start-horizon-ui), then connect an instrumented service to port `11800`.
+
+After traffic reaches OAP, Horizon should show service metrics and complete traces across services and database calls:
+
+![Services dashboard](docs/en/setup/backend/images/greptimedb/services-dashboard.png)
+
+![Trace detail](docs/en/setup/backend/images/greptimedb/trace-detail.png)
 
 See the [GreptimeDB storage documentation](docs/en/setup/backend/storages/greptimedb.md) for configuration, deployment, and known limitations.
 
