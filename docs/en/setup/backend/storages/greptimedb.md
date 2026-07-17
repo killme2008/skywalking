@@ -1,59 +1,111 @@
 ## GreptimeDB
 
-[GreptimeDB](https://github.com/GreptimeTeam/greptimedb) is an open-source, cloud-native time-series database.
-Activate GreptimeDB as the storage by setting the storage provider to **greptimedb**.
+<p align="center">
+  <a href="greptimedb.md">English</a> | <a href="../../../../zh/setup/backend/storages/greptimedb.md">简体中文</a>
+</p>
 
-### Architecture
+[GreptimeDB](https://github.com/GreptimeTeam/greptimedb) can be used as the SkyWalking OAP storage backend by setting the storage provider to `greptimedb`.
 
-The GreptimeDB storage plugin uses a **dual-protocol** architecture:
-- **gRPC** (port 4001) for high-throughput asynchronous writes via the [GreptimeDB Java Ingester SDK](https://docs.greptime.com/user-guide/ingest-data/for-iot/grpc-sdks/java)
-- **MySQL protocol** (port 4002) for SQL queries and DDL via JDBC
+### Availability
 
-This design maximizes write throughput (critical for APM workloads) while leveraging standard SQL for queries.
+The plugin documented here is available in the unofficial downstream release [`v11.0.0-greptimedb.1`](https://github.com/killme2008/skywalking/releases/tag/v11.0.0-greptimedb.1). It is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
 
-### Data Modeling
+The plugin is not part of an Apache Software Foundation release. The official `apache/skywalking-oap-server` image does not contain it; use the downstream image shown in the quick start below.
 
-The plugin maps SkyWalking data models to GreptimeDB tables:
+### Supported scope
 
-| SkyWalking Model | GreptimeDB Mode | Description |
-|------------------|-----------------|-------------|
-| Metrics | `merge_mode='last_row'` | Upsert semantics for aggregated time-series data |
-| Records (traces, logs, profiling tasks) | `append_mode='true'` | Append-only for time-relative record data |
-| Management | `merge_mode='last_row'` | Upsert by `id` for config data |
+| Area | Scope |
+| --- | --- |
+| Metrics | SkyWalking metrics ingestion and query, with last-row merge semantics and native TTL. |
+| Records | Traces, logs, alarms, events, browser error logs, and Zipkin data. Records are append-only with configurable TTL. |
+| Search | Exact filters on searchable trace, log, and alarm tags and Zipkin annotations. Log keyword search uses `matches_term`. |
+| Profiling | Trace profiling, async-profiler, eBPF profiling, pprof, JFR data, and span-attached events. |
+| Management data | UI templates, runtime rules, network address aliases, service labels, and continuous-profiling policies. |
+| Cluster access | Multiple gRPC write endpoints; multiple JDBC frontend endpoints with Connector/J load balancing and failover. |
 
-Key design decisions:
-- **Searchable tags stored as normalized rows** in append-only additional tables. Raw `key=value`
-  values use skipping indexes, and queries use correlated `EXISTS` predicates.
-- **Current-state metadata stored as hourly snapshots**. These metrics retain one physical version
-  per series and hour through `merge_mode='last_row'`.
-- **Native TTL** via `WITH ('ttl' = '...')` table options. No manual history deletion needed.
-- **No date-partitioned tables**. GreptimeDB handles time-based partitioning internally via TIME INDEX.
+GreptimeDB-specific E2E cases cover core storage, logs, alarms, Zipkin, trace profiling, and pprof. Other registered DAOs are covered by unit tests or the shared storage behavior but do not all have a dedicated GreptimeDB E2E case.
 
 ### Prerequisites
 
-- GreptimeDB v1.1.2 or later
-- Ports: 4001 (gRPC), 4002 (MySQL protocol)
-- MySQL Connector/J. The driver is not included in the SkyWalking source or distribution.
+- GreptimeDB v1.1.2 or later.
+- MySQL Connector/J. The driver is not included in the SkyWalking source, binary distribution, or downstream image.
+- A user that can connect to the `public` database, create the configured database and tables, and read and write the configured database.
 
-Download MySQL Connector/J separately and make it available to OAP:
+MySQL Connector/J is released under [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE). Apache classifies GPL dependencies, including most exceptions, as [Category X](https://www.apache.org/legal/resolved.html#category-x) and does not allow them in ASF distributions. This downstream build follows the same distribution rule, so users must obtain the driver separately.
 
-- Binary distribution: copy the driver jar to `oap-libs`.
-- Docker: mount the driver jar into `/skywalking/ext-libs`.
+The E2E suite currently uses Connector/J 8.0.13. Other versions have not been validated by this project.
 
-For example:
+### Docker quick start
+
+This example starts a disposable GreptimeDB instance and the downstream OAP image on the same Docker network. It stores GreptimeDB data inside the container; removing the container removes the data.
+
+Download the Connector/J version used by the E2E suite:
 
 ```bash
-docker run --rm \
-  -v /path/to/mysql-connector-j.jar:/skywalking/ext-libs/mysql-connector-j.jar:ro \
+export MYSQL_CONNECTOR_VERSION=8.0.13
+export MYSQL_CONNECTOR_J="${PWD}/mysql-connector-java-${MYSQL_CONNECTOR_VERSION}.jar"
+
+curl --fail --location \
+  --output "${MYSQL_CONNECTOR_J}" \
+  "https://repo.maven.apache.org/maven2/mysql/mysql-connector-java/${MYSQL_CONNECTOR_VERSION}/mysql-connector-java-${MYSQL_CONNECTOR_VERSION}.jar"
+```
+
+Create a Docker network and start GreptimeDB:
+
+```bash
+docker network create skywalking-greptimedb
+
+docker run -d \
+  --name greptimedb \
+  --network skywalking-greptimedb \
+  -p 4000:4000 \
+  -p 4001:4001 \
+  -p 4002:4002 \
+  greptime/greptimedb:v1.1.2 \
+  standalone start
+
+until curl --fail --silent http://127.0.0.1:4000/health > /dev/null; do
+  sleep 2
+done
+```
+
+Start OAP with GreptimeDB storage enabled:
+
+```bash
+docker run -d \
+  --name skywalking-oap \
+  --network skywalking-greptimedb \
+  -p 11800:11800 \
+  -p 12800:12800 \
+  -v "${MYSQL_CONNECTOR_J}:/skywalking/ext-libs/mysql-connector-j.jar:ro" \
   -e SW_STORAGE=greptimedb \
   -e SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS=greptimedb:4001 \
   -e SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS=greptimedb:4002 \
-  apache/skywalking-oap-server:latest
+  -e SW_STORAGE_GREPTIMEDB_DATABASE=skywalking \
+  -e SW_HEALTH_CHECKER=default \
+  -e "JAVA_OPTS=-Xms1g -Xmx1g" \
+  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
 ```
+
+OAP creates the `skywalking` database and its tables during startup. Wait for the health endpoint to return success:
+
+```bash
+until curl --fail --silent http://127.0.0.1:12800/healthcheck; do
+  sleep 5
+done
+```
+
+If OAP does not become healthy, inspect its startup log:
+
+```bash
+docker logs skywalking-oap
+```
+
+For a binary distribution, copy the Connector/J jar to `oap-libs` instead of mounting it at `/skywalking/ext-libs`.
 
 ### Configuration
 
-In the `application.yml` file, select the GreptimeDB storage provider:
+Select the GreptimeDB storage provider in `application.yml`:
 
 ```yaml
 storage:
@@ -66,78 +118,70 @@ storage:
     database: ${SW_STORAGE_GREPTIMEDB_DATABASE:skywalking}
     user: ${SW_STORAGE_GREPTIMEDB_USER:""}
     password: ${SW_STORAGE_GREPTIMEDB_PASSWORD:""}
-    # TTL per data category. Use GreptimeDB duration format (e.g., "7d", "168h").
+    # TTL per data category. Use GreptimeDB duration format, for example "7d" or "168h".
     metricsTTL: ${SW_STORAGE_GREPTIMEDB_METRICS_TTL:7d}
     recordsTTL: ${SW_STORAGE_GREPTIMEDB_RECORDS_TTL:3d}
     maxJdbcPoolSize: ${SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE:10}
     metadataQueryMaxSize: ${SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE:5000}
 ```
 
-### Configuration Properties
-
-| Property | Environment Variable | Default | Description |
-|----------|---------------------|---------|-------------|
-| `grpcEndpoints` | `SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS` | `127.0.0.1:4001` | GreptimeDB gRPC endpoint(s) for writes. Comma-separated for multiple endpoints. |
-| `jdbcEndpoints` | `SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS` | `127.0.0.1:4002` | GreptimeDB MySQL endpoints for reads and DDL. Comma-separated endpoints use Connector/J load balancing and failover. |
-| `database` | `SW_STORAGE_GREPTIMEDB_DATABASE` | `skywalking` | Database name. Created automatically if not exists. |
+| Property | Environment variable | Default | Description |
+| --- | --- | --- | --- |
+| `grpcEndpoints` | `SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS` | `127.0.0.1:4001` | GreptimeDB gRPC endpoints for writes, separated by commas. |
+| `jdbcEndpoints` | `SW_STORAGE_GREPTIMEDB_JDBC_ENDPOINTS` | `127.0.0.1:4002` | GreptimeDB MySQL endpoints for reads and DDL. Multiple endpoints use Connector/J load balancing and failover. |
+| `database` | `SW_STORAGE_GREPTIMEDB_DATABASE` | `skywalking` | Database name. OAP creates it if it does not exist. |
 | `user` | `SW_STORAGE_GREPTIMEDB_USER` | `""` | Authentication username. |
 | `password` | `SW_STORAGE_GREPTIMEDB_PASSWORD` | `""` | Authentication password. |
-| `metricsTTL` | `SW_STORAGE_GREPTIMEDB_METRICS_TTL` | `7d` | TTL for metrics data (all downsampling levels). |
-| `recordsTTL` | `SW_STORAGE_GREPTIMEDB_RECORDS_TTL` | `3d` | TTL for records (traces, logs, alarms, profiling tasks). |
-| `maxJdbcPoolSize` | `SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE` | `10` | Max JDBC connection pool size. |
-| `metadataQueryMaxSize` | `SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE` | `5000` | Max rows for metadata queries (services, instances, endpoints). |
+| `metricsTTL` | `SW_STORAGE_GREPTIMEDB_METRICS_TTL` | `7d` | TTL for metrics at every downsampling level. |
+| `recordsTTL` | `SW_STORAGE_GREPTIMEDB_RECORDS_TTL` | `3d` | Shared TTL for traces, logs, alarms, profiling data, and other records. |
+| `maxJdbcPoolSize` | `SW_STORAGE_GREPTIMEDB_MAX_JDBC_POOL_SIZE` | `10` | Maximum JDBC connection pool size. |
+| `metadataQueryMaxSize` | `SW_STORAGE_GREPTIMEDB_QUERY_MAX_SIZE` | `5000` | Maximum rows returned by metadata queries for services, instances, and endpoints. |
 
-Searchable trace, log, and alarm tags, plus Zipkin annotation queries, are stored in append-only
-additional tables. The raw `key=value` value has a GreptimeDB skipping index for exact filters.
-Searchable-tag whitelist changes do not change the table schema.
+### Architecture and data model
 
-For a GreptimeDB cluster, list every frontend MySQL endpoint in `jdbcEndpoints`, for example
-`frontend-0:4002,frontend-1:4002,frontend-2:4002`. The plugin uses Connector/J load balancing for
-both database bootstrap and the JDBC connection pool, and fails over when a frontend is unavailable.
+The plugin uses two GreptimeDB protocols:
 
-Management data (UI templates and continuous-profiling policies) is stored with `ttl = 'forever'` and never expires, so there is no TTL to configure for it.
+- gRPC on port 4001 for asynchronous writes through the [GreptimeDB Java Ingester SDK](https://docs.greptime.com/user-guide/ingest-data/for-iot/grpc-sdks/java).
+- The MySQL protocol on port 4002 for queries, DDL, and database bootstrap through JDBC.
 
-Tables are created automatically on OAP startup. Existing tables must match the generated column,
-primary-key, index, table-mode, and TTL definitions. The plugin does not alter an incompatible schema;
-drop the mismatched tables and let OAP recreate them.
+SkyWalking models use different GreptimeDB table modes:
 
-### Running GreptimeDB
+| SkyWalking model | GreptimeDB mode | Behavior |
+| --- | --- | --- |
+| Metrics | `merge_mode='last_row'` | Upsert aggregated time-series data. |
+| Records | `append_mode='true'` | Append time-relative records such as traces, logs, alarms, and profiling data. |
+| Management | `merge_mode='last_row'` | Upsert current configuration by `id`. |
 
-#### Docker (Standalone)
+Searchable trace, log, and alarm tags and Zipkin annotations are stored as normalized rows in additional append-only tables. Raw `key=value` values use skipping indexes, and exact filters use correlated `EXISTS` predicates. Changing the searchable-tag whitelist does not change the table schema.
 
-```bash
-docker run -d --name greptimedb \
-  -p 4000:4000 \
-  -p 4001:4001 \
-  -p 4002:4002 \
-  greptime/greptimedb:v1.1.2 standalone start
+Current-state metadata is stored as hourly snapshots. Metrics keep one physical version per series and hour through `merge_mode='last_row'`. Management data, including UI templates and continuous-profiling policies, uses `ttl = 'forever'`.
+
+GreptimeDB applies TTL through table options and handles time-based partitioning through the TIME INDEX. The plugin does not create date-partitioned tables or run manual history deletion.
+
+### Cluster deployment and transport security
+
+List each GreptimeDB frontend MySQL endpoint in `jdbcEndpoints`, for example:
+
+```text
+frontend-0:4002,frontend-1:4002,frontend-2:4002
 ```
 
-Port 4000 is the HTTP API (used for health checks), 4001 is gRPC, and 4002 is MySQL protocol.
+The plugin uses Connector/J load balancing for database bootstrap and the JDBC connection pool. It fails over when a listed frontend is unavailable. `grpcEndpoints` also accepts a comma-separated list of GreptimeDB gRPC endpoints.
 
-#### Docker Compose
+The current plugin configuration exposes username and password authentication but has no TLS or CA settings. Do not send credentials or telemetry over an untrusted network. Use a trusted private network or a local TLS-terminating proxy. A direct TLS connection from OAP has not been validated for this version of the plugin.
 
-```yaml
-services:
-  greptimedb:
-    image: greptime/greptimedb:v1.1.2
-    command: standalone start
-    ports:
-      - "4000:4000"
-      - "4001:4001"
-      - "4002:4002"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
-      interval: 5s
-      timeout: 10s
-      retries: 12
-```
+GreptimeDB replication, sharding, and storage placement are configured on the GreptimeDB side, not in the OAP plugin. See the [GreptimeDB documentation](https://docs.greptime.com/) for cluster deployment.
 
-For production cluster deployment, refer to the [GreptimeDB documentation](https://docs.greptime.com/).
+### Schema changes and upgrades
 
-### Known Limitations
+OAP creates tables automatically. On later starts, it validates columns, primary keys, indexes, table mode, and TTL against the generated schema. The plugin does not alter or migrate an incompatible table.
 
-- **FULLTEXT search**: Log content FULLTEXT search uses English analyzer by default.
-- **Trace V2 query**: SkyWalking currently exposes Trace V2 queries only with BanyanDB storage.
-- **Metadata history**: Current-state metadata has hourly snapshot granularity. Minute-level
-  historical presence within the same hour is not preserved.
+Changing `metricsTTL`, `recordsTTL`, or a plugin version that changes the generated schema can make validation fail. Do not drop a production table just to make OAP start: dropping a table deletes its data. Back up the data first, or configure a new database and let OAP create a fresh schema.
+
+### Known limitations
+
+- Log full-text search uses the English analyzer.
+- SkyWalking Trace V2 queries are only available with BanyanDB storage.
+- Current-state metadata has hourly snapshot granularity. Minute-level historical presence within the same hour is not preserved.
+- The plugin has no TLS or CA configuration for gRPC or JDBC connections; direct TLS has not been validated.
+- Schema migration is not automatic.

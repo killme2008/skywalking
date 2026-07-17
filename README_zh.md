@@ -11,6 +11,8 @@
 
 这是 [Apache SkyWalking](https://github.com/apache/skywalking) 的非官方下游版本，为 OAP 增加了 GreptimeDB 存储后端。
 
+`v11.0.0-greptimedb.1` 基于 Apache SkyWalking `11.0.0-SNAPSHOT`，对应上游 commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66)。
+
 写入通过 GreptimeDB gRPC API 完成，查询和 DDL 使用 MySQL 兼容协议。发布的 OAP 镜像已经包含 GreptimeDB storage plugin，并通过 SkyWalking storage E2E 测试验证。
 
 这是供社区测试和验证的构建，不是 Apache Software Foundation 的正式发行版。
@@ -20,9 +22,10 @@
 | 领域 | 当前能力 |
 | --- | --- |
 | Metrics | 支持 SkyWalking metrics 写入和查询，使用 last-row merge 语义和 GreptimeDB 原生 TTL。 |
-| Records | 支持 traces、logs、alarms、Zipkin data、trace profiling 和 pprof profiling。Records 采用 append-only 模式，TTL 可配置。 |
+| Records | 支持 traces、logs、alarms、events、browser error logs、Zipkin data 和 profiling data。Records 采用 append-only 模式，TTL 可配置。 |
 | Search | 支持按 searchable trace、log、alarm tags 和 Zipkin annotations 精确过滤；通过 `matches_term` 查询日志关键词。 |
-| Management data | 支持 UI templates 和 continuous-profiling policies，不设置 TTL。 |
+| Profiling | 支持 trace profiling、async-profiler、eBPF profiling、pprof、JFR data 和 span-attached events。 |
+| Management data | 支持 UI templates、runtime rules、network address aliases、service labels 和 continuous-profiling policies，不设置 TTL。 |
 | Cluster access | 写入可配置多个 gRPC endpoints；JDBC 可配置多个 frontend endpoints，并通过 Connector/J 提供 load balancing 和 failover。 |
 | Schema lifecycle | OAP 启动时自动建表并校验已有表；schema 不兼容时需要删除后重建。 |
 
@@ -31,6 +34,8 @@
 - 日志全文检索使用 English analyzer。
 - SkyWalking Trace V2 query 目前只支持 BanyanDB storage。
 - Current-state metadata 按小时保留快照，不保留同一小时内的分钟级历史。
+- Plugin 没有 TLS 或 CA 配置，尚未验证 direct TLS。
+- 不支持自动 schema migration。
 
 ## 快速试用
 
@@ -56,7 +61,7 @@ docker run --rm \
   ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
 ```
 
-配置、部署方式和已知限制见 [GreptimeDB 存储文档](docs/en/setup/backend/storages/greptimedb.md)。
+配置、部署方式和已知限制见 [GreptimeDB 存储文档](docs/zh/setup/backend/storages/greptimedb.md)。
 
 ## 推进上游支持
 

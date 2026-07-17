@@ -11,6 +11,8 @@
 
 An unofficial downstream build of [Apache SkyWalking](https://github.com/apache/skywalking) that adds GreptimeDB as an OAP storage backend.
 
+Release `v11.0.0-greptimedb.1` is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
+
 This fork writes telemetry data through GreptimeDB's gRPC API and uses its MySQL-compatible protocol for queries and DDL. The published OAP image includes the GreptimeDB storage plugin and is tested against SkyWalking's storage E2E suites.
 
 This is a community build for testing and evaluation, not an Apache Software Foundation release.
@@ -20,9 +22,10 @@ This is a community build for testing and evaluation, not an Apache Software Fou
 | Area | Scope |
 | --- | --- |
 | Metrics | SkyWalking metrics ingestion and query, with last-row merge semantics and native TTL. |
-| Records | Traces, logs, alarms, Zipkin data, trace profiling, and pprof profiling. Records are append-only with configurable TTL. |
+| Records | Traces, logs, alarms, events, browser error logs, Zipkin data, and profiling data. Records are append-only with configurable TTL. |
 | Search | Exact filters on searchable trace, log, and alarm tags and Zipkin annotations. Log keyword search is supported through `matches_term`. |
-| Management data | UI templates and continuous-profiling policies, retained without TTL. |
+| Profiling | Trace profiling, async-profiler, eBPF profiling, pprof, JFR data, and span-attached events. |
+| Management data | UI templates, runtime rules, network address aliases, service labels, and continuous-profiling policies, retained without TTL. |
 | Cluster access | Multiple gRPC write endpoints; multiple JDBC frontend endpoints with Connector/J load balancing and failover. |
 | Schema lifecycle | Tables are created automatically. Existing tables are validated; incompatible schemas must be dropped and recreated. |
 
@@ -31,6 +34,8 @@ Current limitations:
 - Log full-text search uses the English analyzer.
 - SkyWalking Trace V2 queries are only available with BanyanDB storage.
 - Current-state metadata keeps hourly snapshots, not minute-level history within an hour.
+- The plugin has no TLS or CA configuration; direct TLS has not been validated.
+- Schema migration is not automatic.
 
 ## Try it
 
