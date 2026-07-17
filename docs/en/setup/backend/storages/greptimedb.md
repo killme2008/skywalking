@@ -12,6 +12,10 @@ The plugin documented here is available in the unofficial downstream release [`v
 
 The plugin is not part of an Apache Software Foundation release. The official `apache/skywalking-oap-server` image does not contain it; use the downstream image shown in the quick start below.
 
+### Upstream proposal
+
+Official GreptimeDB storage support is being discussed in [apache/skywalking discussion #13722](https://github.com/apache/skywalking/discussions/13722). If you want to use GreptimeDB with SkyWalking, please add your use case there. Data volume, retention, deployment model, and required query features give the maintainers more useful input than a simple `+1`.
+
 ### Supported scope
 
 | Area | Scope |

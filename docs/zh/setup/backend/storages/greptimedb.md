@@ -12,6 +12,10 @@
 
 该 plugin 尚未进入 Apache Software Foundation 的正式发行版。官方 `apache/skywalking-oap-server` 镜像不包含它，请使用下方快速开始中的下游镜像。
 
+### 推进上游支持
+
+Apache SkyWalking 社区正在 [Discussion #13722](https://github.com/apache/skywalking/discussions/13722) 中讨论正式支持 GreptimeDB storage。如果你希望在 SkyWalking 中使用 GreptimeDB，欢迎在 Discussion 中说明实际场景。数据规模、保留时间、部署方式和依赖的查询能力，比单纯回复 `+1` 更有参考价值。
+
 ### 支持范围
 
 | 领域 | 当前能力 |
