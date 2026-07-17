@@ -11,7 +11,7 @@
 
 An unofficial downstream build of [Apache SkyWalking](https://github.com/apache/skywalking) that adds GreptimeDB as an OAP storage backend.
 
-Release `v11.0.0-greptimedb.1` is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
+Release `v11.0.0-greptimedb.2` is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
 
 This fork writes telemetry data through GreptimeDB's gRPC API and uses its MySQL-compatible protocol for queries and DDL. The published OAP image includes the GreptimeDB storage plugin and is tested against SkyWalking's storage E2E suites.
 
@@ -41,14 +41,14 @@ Current limitations:
 
 The current release provides a binary distribution and a multi-architecture container image:
 
-- [Binary distribution](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz)
-- [SHA-512 checksum](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz.sha512)
+- [Binary distribution](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.2/apache-skywalking-apm-11.0.0-greptimedb.2-bin.tar.gz)
+- [SHA-512 checksum](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.2/apache-skywalking-apm-11.0.0-greptimedb.2-bin.tar.gz.sha512)
 
 ```text
-ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
+ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.2
 ```
 
-GreptimeDB v1.1.2 or later is required. MySQL Connector/J is also required but is not included in the image. Connector/J is released under [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE). Apache classifies GPL dependencies, including most exceptions, as [Category X](https://www.apache.org/legal/resolved.html#category-x) and does not allow them in ASF distributions. This fork follows the same distribution rule.
+The plugin is tested against GreptimeDB v0.15.5 and v1.1.2 in CI, with an additional manual smoke test against v0.17.2. MySQL Connector/J is also required but is not included in the image. Connector/J is released under [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE). Apache classifies GPL dependencies, including most exceptions, as [Category X](https://www.apache.org/legal/resolved.html#category-x) and does not allow them in ASF distributions. This fork follows the same distribution rule.
 
 The [Docker quick start](docs/en/setup/backend/storages/greptimedb.md#docker-quick-start) covers the complete setup. If GreptimeDB is already running as `greptimedb` on the `skywalking-greptimedb` Docker network, download the driver separately, mount it into `/skywalking/ext-libs`, and start OAP with:
 
@@ -68,7 +68,7 @@ docker run -d \
   -e SW_RECEIVER_ZIPKIN=default \
   -e SW_QUERY_ZIPKIN=default \
   -e "JAVA_OPTS=-Xms1g -Xmx1g" \
-  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
+  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.2
 ```
 
 Continue with [Start Horizon UI](docs/en/setup/backend/storages/greptimedb.md#start-horizon-ui), then connect an instrumented service to port `11800`.

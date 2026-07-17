@@ -11,7 +11,7 @@
 
 这是 [Apache SkyWalking](https://github.com/apache/skywalking) 的非官方下游版本，为 OAP 增加了 GreptimeDB 存储后端。
 
-`v11.0.0-greptimedb.1` 基于 Apache SkyWalking `11.0.0-SNAPSHOT`，对应上游 commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66)。
+`v11.0.0-greptimedb.2` 基于 Apache SkyWalking `11.0.0-SNAPSHOT`，对应上游 commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66)。
 
 写入通过 GreptimeDB gRPC API 完成，查询和 DDL 使用 MySQL 兼容协议。发布的 OAP 镜像已经包含 GreptimeDB storage plugin，并通过 SkyWalking storage E2E 测试验证。
 
@@ -41,14 +41,14 @@
 
 当前 release 提供二进制发行包和多架构容器镜像：
 
-- [二进制发行包](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz)
-- [SHA-512 checksum](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.1/apache-skywalking-apm-11.0.0-greptimedb.1-bin.tar.gz.sha512)
+- [二进制发行包](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.2/apache-skywalking-apm-11.0.0-greptimedb.2-bin.tar.gz)
+- [SHA-512 checksum](https://github.com/killme2008/skywalking/releases/download/v11.0.0-greptimedb.2/apache-skywalking-apm-11.0.0-greptimedb.2-bin.tar.gz.sha512)
 
 ```text
-ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
+ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.2
 ```
 
-需要 GreptimeDB v1.1.2 或更高版本。镜像不包含 MySQL Connector/J。Connector/J 使用 [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE)；Apache 将 GPL 依赖及大多数例外归为 [Category X](https://www.apache.org/legal/resolved.html#category-x)，不允许打进 ASF 发行物。本 fork 沿用同样的分发边界。
+插件在 CI 中覆盖 GreptimeDB v0.15.5 和 v1.1.2，并对 v0.17.2 做过额外的人工冒烟测试。镜像不包含 MySQL Connector/J。Connector/J 使用 [GPLv2 with the Universal FOSS Exception](https://github.com/mysql/mysql-connector-j/blob/release/8.x/LICENSE)；Apache 将 GPL 依赖及大多数例外归为 [Category X](https://www.apache.org/legal/resolved.html#category-x)，不允许打进 ASF 发行物。本 fork 沿用同样的分发边界。
 
 [Docker 快速开始](docs/zh/setup/backend/storages/greptimedb.md#docker-快速开始)包含完整的启动流程。如果 GreptimeDB 已经作为 `greptimedb` 容器运行在 `skywalking-greptimedb` Docker network 中，请单独下载 Connector/J、挂载到 `/skywalking/ext-libs`，然后启动 OAP：
 
@@ -68,7 +68,7 @@ docker run -d \
   -e SW_RECEIVER_ZIPKIN=default \
   -e SW_QUERY_ZIPKIN=default \
   -e "JAVA_OPTS=-Xms1g -Xmx1g" \
-  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
+  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.2
 ```
 
 接着按照[启动 Horizon UI](docs/zh/setup/backend/storages/greptimedb.md#启动-horizon-ui)完成 UI 配置，再将带 SkyWalking Agent 的服务连接到 `11800` 端口。

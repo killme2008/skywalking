@@ -8,7 +8,7 @@
 
 ### Availability
 
-The plugin documented here is available in the unofficial downstream release [`v11.0.0-greptimedb.1`](https://github.com/killme2008/skywalking/releases/tag/v11.0.0-greptimedb.1). It is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
+The plugin documented here is available in the unofficial downstream release [`v11.0.0-greptimedb.2`](https://github.com/killme2008/skywalking/releases/tag/v11.0.0-greptimedb.2). It is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
 
 The plugin is not part of an Apache Software Foundation release. The official `apache/skywalking-oap-server` image does not contain it; use the downstream image shown in the quick start below.
 
@@ -31,7 +31,7 @@ GreptimeDB-specific E2E cases cover core storage, logs, alarms, Zipkin, trace pr
 
 ### Prerequisites
 
-- GreptimeDB v1.1.2 or later.
+- The minimum tested GreptimeDB version is v0.15.5. CI covers v0.15.5 and v1.1.2; v0.17.2 has also passed the smoke test described below.
 - MySQL Connector/J. The driver is not included in the SkyWalking source, binary distribution, or downstream image.
 - A user that can connect to the `public` database, create the configured database and tables, and read and write the configured database.
 
@@ -102,7 +102,7 @@ docker run -d \
   -e SW_RECEIVER_ZIPKIN=default \
   -e SW_QUERY_ZIPKIN=default \
   -e "JAVA_OPTS=-Xms1g -Xmx1g" \
-  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.1
+  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.2
 ```
 
 OAP creates the `skywalking` database and its tables during startup. Wait for the health endpoint to return success:
