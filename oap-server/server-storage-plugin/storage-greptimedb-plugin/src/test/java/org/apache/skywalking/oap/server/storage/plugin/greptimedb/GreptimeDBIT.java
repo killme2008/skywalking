@@ -112,10 +112,12 @@ class GreptimeDBIT {
     private static final int HTTP_PORT = 4000;
     private static final int GRPC_PORT = 4001;
     private static final int MYSQL_PORT = 4002;
+    private static final String GREPTIMEDB_IMAGE = System.getProperty(
+        "greptimedb.test.image", "greptime/greptimedb:v1.1.2");
 
     @Container
     public GenericContainer<?> greptimeDB = new GenericContainer<>(
-        DockerImageName.parse("greptime/greptimedb:v1.1.2"))
+        DockerImageName.parse(GREPTIMEDB_IMAGE))
         .withCommand("standalone", "start",
             "--http-addr", "0.0.0.0:4000",
             "--rpc-bind-addr", "0.0.0.0:4001",
@@ -579,15 +581,16 @@ class GreptimeDBIT {
     private Set<String> indexedColumns(final String tableName, final String indexType) throws Exception {
         final Set<String> columns = new HashSet<>();
         try (Connection conn = client.getConnection();
-             PreparedStatement ps = conn.prepareStatement(
-                 "SELECT column_name FROM information_schema.statistics "
-                     + "WHERE table_schema = ? AND table_name = ? AND index_type = ?")) {
-            ps.setString(1, config.getDatabase());
-            ps.setString(2, tableName);
-            ps.setString(3, indexType);
-            try (ResultSet rs = ps.executeQuery()) {
+             Statement statement = conn.createStatement()) {
+            final String sql = "SHOW INDEX FROM `" + tableName.replace("`", "``") + "`";
+            try (ResultSet rs = statement.executeQuery(sql)) {
                 while (rs.next()) {
-                    columns.add(rs.getString(1));
+                    for (final String token : rs.getString("Key_name").split(",")) {
+                        final String type = token.trim().replace(' ', '_');
+                        if (indexType.equals(type) || type.startsWith(indexType + "_INDEX")) {
+                            columns.add(rs.getString("Column_name"));
+                        }
+                    }
                 }
             }
         }

@@ -308,6 +308,13 @@ jobs:
           ./mvnw -B clean verify -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
             -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip \
             -Dgreptimedb.mysql.driver.path=/tmp/skywalking-test-libs/mysql-connector-java-8.0.13.jar
+      - name: GreptimeDB v0.15.5 storage integration test
+        if: matrix.java-version == 17
+        run: |
+          ./mvnw -B clean verify -pl oap-server/server-storage-plugin/storage-greptimedb-plugin -am \
+            -Dcheckstyle.skip -DskipUTs=true -DexcludedGroups=slow -Dgpg.skip \
+            -Dgreptimedb.mysql.driver.path=/tmp/skywalking-test-libs/mysql-connector-java-8.0.13.jar \
+            -Dgreptimedb.test.image=greptime/greptimedb:v0.15.5
 
   # Slow tests
   slow-integration-test:

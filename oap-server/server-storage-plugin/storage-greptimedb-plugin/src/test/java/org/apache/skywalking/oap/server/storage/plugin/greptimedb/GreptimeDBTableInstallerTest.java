@@ -21,6 +21,7 @@ package org.apache.skywalking.oap.server.storage.plugin.greptimedb;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -38,6 +39,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -225,6 +227,42 @@ class GreptimeDBTableInstallerTest {
             TestModels.sampleRecordModel(), StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
         verify(client, times(1)).getConnection();
         verify(statement, times(3)).executeQuery();
+    }
+
+    @Test
+    void fallsBackToKeyColumnUsageWhenStatisticsViewIsMissing() throws Exception {
+        final Connection connection = mock(Connection.class);
+        final PreparedStatement tablesStatement = mock(PreparedStatement.class);
+        final PreparedStatement columnsStatement = mock(PreparedStatement.class);
+        final PreparedStatement indexesStatement = mock(PreparedStatement.class);
+        final PreparedStatement legacyIndexesStatement = mock(PreparedStatement.class);
+        final ResultSet tables = mock(ResultSet.class);
+        final ResultSet columns = mock(ResultSet.class);
+        final ResultSet indexes = mock(ResultSet.class);
+        when(client.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement(contains("information_schema.tables")))
+            .thenReturn(tablesStatement);
+        when(connection.prepareStatement(contains("information_schema.columns")))
+            .thenReturn(columnsStatement);
+        when(connection.prepareStatement(contains("information_schema.statistics")))
+            .thenReturn(indexesStatement);
+        when(connection.prepareStatement(contains("information_schema.key_column_usage")))
+            .thenReturn(legacyIndexesStatement);
+        when(tablesStatement.executeQuery()).thenReturn(tables);
+        when(columnsStatement.executeQuery()).thenReturn(columns);
+        when(indexesStatement.executeQuery()).thenThrow(new SQLException(
+            "Table not found: greptime.information_schema.statistics"));
+        when(legacyIndexesStatement.executeQuery()).thenReturn(indexes);
+        when(tables.next()).thenReturn(true, false);
+        when(tables.getString(1)).thenReturn("existing_table");
+        when(tables.getString(2)).thenReturn("");
+        when(columns.next()).thenReturn(false);
+        when(indexes.next()).thenReturn(false);
+
+        assertFalse(installer.isExists(
+            TestModels.sampleMetricsModel(), StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
+
+        verify(legacyIndexesStatement).executeQuery();
     }
 
     // ---- selectPrimaryKeyColumns (delegated, but verify installer method) ----
