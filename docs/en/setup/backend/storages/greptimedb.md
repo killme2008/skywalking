@@ -92,6 +92,7 @@ docker run -d \
   --network skywalking-greptimedb \
   -p 11800:11800 \
   -p 12800:12800 \
+  -p 9411:9411 \
   -v "${MYSQL_CONNECTOR_J}:/skywalking/ext-libs/mysql-connector-j.jar:ro" \
   -e SW_STORAGE=greptimedb \
   -e SW_STORAGE_GREPTIMEDB_GRPC_ENDPOINTS=greptimedb:4001 \
