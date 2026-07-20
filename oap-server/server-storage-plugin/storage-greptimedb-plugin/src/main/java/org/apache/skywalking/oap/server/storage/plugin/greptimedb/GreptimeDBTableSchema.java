@@ -149,7 +149,8 @@ public final class GreptimeDBTableSchema {
         options.put("append_mode", "true");
         options.put("ttl", config.getRecordsTTL());
         return new GreptimeDBTableSchema(
-            additionalTable.getName(), columns, Collections.emptyList(), options, listColumn);
+            GreptimeDBConverter.normalizeTableName(additionalTable.getName()),
+            columns, Collections.emptyList(), options, listColumn);
     }
 
     private static String resolveTTL(final Model model, final GreptimeDBStorageConfig config) {
