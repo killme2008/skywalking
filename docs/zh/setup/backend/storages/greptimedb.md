@@ -8,7 +8,7 @@
 
 ### 可用版本
 
-本文档对应非官方下游版本 [`v11.0.0-greptimedb.2`](https://github.com/killme2008/skywalking/releases/tag/v11.0.0-greptimedb.2)。该版本基于 Apache SkyWalking `11.0.0-SNAPSHOT`，对应上游 commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66)。
+本文档对应非官方下游版本 [`v11.0.0-greptimedb.3`](https://github.com/killme2008/skywalking/releases/tag/v11.0.0-greptimedb.3)。该版本基于 Apache SkyWalking `11.0.0-SNAPSHOT`，对应上游 commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66)。
 
 该 plugin 尚未进入 Apache Software Foundation 的正式发行版。官方 `apache/skywalking-oap-server` 镜像不包含它，请使用下方快速开始中的下游镜像。
 
@@ -102,7 +102,7 @@ docker run -d \
   -e SW_RECEIVER_ZIPKIN=default \
   -e SW_QUERY_ZIPKIN=default \
   -e "JAVA_OPTS=-Xms1g -Xmx1g" \
-  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.2
+  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.3
 ```
 
 OAP 启动时会创建 `skywalking` database 和所需 tables。等待 health endpoint 返回成功：

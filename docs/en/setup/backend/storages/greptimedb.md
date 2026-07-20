@@ -8,7 +8,7 @@
 
 ### Availability
 
-The plugin documented here is available in the unofficial downstream release [`v11.0.0-greptimedb.2`](https://github.com/killme2008/skywalking/releases/tag/v11.0.0-greptimedb.2). It is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
+The plugin documented here is available in the unofficial downstream release [`v11.0.0-greptimedb.3`](https://github.com/killme2008/skywalking/releases/tag/v11.0.0-greptimedb.3). It is based on Apache SkyWalking `11.0.0-SNAPSHOT` at upstream commit [`46129f18`](https://github.com/apache/skywalking/commit/46129f18e815829ea14afce9a013bae7d8dfdc66).
 
 The plugin is not part of an Apache Software Foundation release. The official `apache/skywalking-oap-server` image does not contain it; use the downstream image shown in the quick start below.
 
@@ -102,7 +102,7 @@ docker run -d \
   -e SW_RECEIVER_ZIPKIN=default \
   -e SW_QUERY_ZIPKIN=default \
   -e "JAVA_OPTS=-Xms1g -Xmx1g" \
-  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.2
+  ghcr.io/killme2008/greptimedb-oap:11.0.0-greptimedb.3
 ```
 
 OAP creates the `skywalking` database and its tables during startup. Wait for the health endpoint to return success:
