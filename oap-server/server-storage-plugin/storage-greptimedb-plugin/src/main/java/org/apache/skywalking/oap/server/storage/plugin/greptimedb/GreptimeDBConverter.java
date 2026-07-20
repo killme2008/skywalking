@@ -27,6 +27,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
@@ -147,10 +148,25 @@ public final class GreptimeDBConverter {
         if (model.isTimeSeries() && model.isMetric()) {
             final DownSampling ds = model.getDownsampling();
             if (ds != DownSampling.None) {
-                return model.getName() + "_" + ds.getName();
+                return normalizeTableName(model.getName() + "_" + ds.getName());
             }
         }
-        return model.getName();
+        return normalizeTableName(model.getName());
+    }
+
+    /**
+     * Canonicalize a table name to the form GreptimeDB actually stores. GreptimeDB folds every
+     * unquoted identifier to lower case ({@code canonicalize_identifier} in its SQL parser), and
+     * neither the create-table DDL nor the gRPC write path quotes the table name, so the physical
+     * table is always lower case. A SkyWalking model whose name carries an upper-case letter (e.g.
+     * rocketmq's {@code meter_rocketmq_cluster_max_commitLog_disk_ratio}) would otherwise be looked
+     * up case-sensitively against the lower-cased {@code information_schema} name in
+     * {@code isExists} and never match — hanging a no-init OAP in its "waiting create or update"
+     * loop forever. This is the single point that keeps the Java-side name equal to the physical
+     * name across DDL, writes, queries and schema inspection.
+     */
+    public static String normalizeTableName(final String tableName) {
+        return tableName.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -186,7 +202,7 @@ public final class GreptimeDBConverter {
      * based on the Duration step.
      */
     public static String resolveMetricsTableName(final String metricName, final Step step) {
-        return metricName + "_" + step.name().toLowerCase();
+        return normalizeTableName(metricName + "_" + step.name());
     }
 
     /**

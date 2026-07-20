@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import org.apache.skywalking.oap.server.core.analysis.DownSampling;
+import org.apache.skywalking.oap.server.core.storage.StorageException;
 import org.apache.skywalking.oap.server.core.storage.model.Model;
 import org.apache.skywalking.oap.server.core.storage.model.ModelColumn;
 import org.apache.skywalking.oap.server.core.storage.model.StorageManipulationOpt;
@@ -37,6 +38,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
@@ -227,6 +229,42 @@ class GreptimeDBTableInstallerTest {
             TestModels.sampleRecordModel(), StorageManipulationOpt.schemaCreateIfAbsent()).isAllExist());
         verify(client, times(1)).getConnection();
         verify(statement, times(3)).executeQuery();
+    }
+
+    @Test
+    void isExistsMatchesLowerCasedTableForCamelCaseModel() throws Exception {
+        // Regression: GreptimeDB folds an unquoted table name to lower case, so a camelCase model
+        // (rocketmq's commitLog) lands in a physical table whose information_schema name is lower
+        // case. isExists must resolve the model to that same lower-cased name; otherwise the
+        // case-sensitive snapshot lookup reports MISSING and a no-init OAP waits forever. Feed a
+        // cold snapshot (from information_schema, NOT an in-process createTable) that holds only the
+        // lower-cased table with no columns: once the name resolves, the shape diff trips and
+        // surfaces the canonical lower-case name — proving the table was matched by it.
+        final Connection connection = mock(Connection.class);
+        final PreparedStatement statement = mock(PreparedStatement.class);
+        final ResultSet tables = mock(ResultSet.class);
+        final ResultSet empty = mock(ResultSet.class);
+        when(client.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement(contains("information_schema.tables"))).thenReturn(statement);
+        when(connection.prepareStatement(contains("information_schema.columns"))).thenReturn(statement);
+        when(connection.prepareStatement(contains("information_schema.statistics"))).thenReturn(statement);
+        when(statement.executeQuery()).thenReturn(tables, empty, empty);
+        when(tables.next()).thenReturn(true, false);
+        when(tables.getString(1)).thenReturn("meter_rocketmq_cluster_max_commitlog_disk_ratio_minute");
+        when(tables.getString(2)).thenReturn("");
+        when(empty.next()).thenReturn(false);
+
+        final List<ModelColumn> columns = new ArrayList<>();
+        columns.add(TestModels.col("service_id", String.class));
+        columns.add(TestModels.col("value", long.class, true, 0));
+        final Model model = TestModels.metricsModel(
+            "meter_rocketmq_cluster_max_commitLog_disk_ratio", DownSampling.Minute, columns);
+
+        final StorageException thrown = assertThrows(StorageException.class,
+            () -> installer.isExists(model, StorageManipulationOpt.schemaCreateIfAbsent()));
+        assertTrue(thrown.getMessage().contains(
+                "meter_rocketmq_cluster_max_commitlog_disk_ratio_minute"),
+            "table must be resolved and reported by its lower-cased canonical name");
     }
 
     @Test

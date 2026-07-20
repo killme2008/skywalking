@@ -152,6 +152,19 @@ class GreptimeDBConverterTest {
         assertEquals("service_resp_time_hour", GreptimeDBConverter.resolveTableName(model));
     }
 
+    @Test
+    void resolveTableNameShouldLowerCaseCamelCaseModelName() {
+        // GreptimeDB folds unquoted identifiers to lower case, so a camelCase model name
+        // (e.g. rocketmq's commitLog metric) must resolve to the lower-cased physical name;
+        // otherwise the case-sensitive isExists lookup hangs a no-init OAP forever.
+        final List<ModelColumn> columns = new ArrayList<>();
+        columns.add(TestModels.col("service_id", String.class));
+        final Model model = TestModels.metricsModel(
+            "meter_rocketmq_cluster_max_commitLog_disk_ratio", DownSampling.Minute, columns);
+        assertEquals("meter_rocketmq_cluster_max_commitlog_disk_ratio_minute",
+            GreptimeDBConverter.resolveTableName(model));
+    }
+
     // ---- selectPrimaryKeyColumns ----
 
     @Test
@@ -218,6 +231,14 @@ class GreptimeDBConverterTest {
         assertEquals("service_resp_time_day",
             GreptimeDBConverter.resolveMetricsTableName("service_resp_time",
                 org.apache.skywalking.oap.server.core.query.enumeration.Step.DAY));
+    }
+
+    @Test
+    void resolveMetricsTableNameShouldLowerCaseCamelCaseMetricName() {
+        assertEquals("meter_rocketmq_cluster_max_commitlog_disk_ratio_minute",
+            GreptimeDBConverter.resolveMetricsTableName(
+                "meter_rocketmq_cluster_max_commitLog_disk_ratio",
+                org.apache.skywalking.oap.server.core.query.enumeration.Step.MINUTE));
     }
 
     // ---- buildOrderedRow ----
