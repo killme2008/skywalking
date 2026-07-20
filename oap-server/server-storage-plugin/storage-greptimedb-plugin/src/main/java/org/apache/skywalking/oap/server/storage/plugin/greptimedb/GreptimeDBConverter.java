@@ -202,7 +202,7 @@ public final class GreptimeDBConverter {
      * based on the Duration step.
      */
     public static String resolveMetricsTableName(final String metricName, final Step step) {
-        return normalizeTableName(metricName + "_" + step.name().toLowerCase());
+        return normalizeTableName(metricName + "_" + step.name());
     }
 
     /**
