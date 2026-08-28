@@ -85,6 +85,17 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <!--
+            GreptimeDBIT builds a Testcontainers GenericContainer, so javac resolves TestRule
+            through its superclass chain. server-testing ships the empty org.junit stubs that
+            satisfy it without pulling JUnit 4 (see #13977).
+        -->
+        <dependency>
+            <groupId>org.apache.skywalking</groupId>
+            <artifactId>server-testing</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
