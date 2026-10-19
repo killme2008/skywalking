@@ -64,9 +64,12 @@ public class RecordStreamProcessor implements StreamProcessor<Record> {
 
     @Override
     public void in(Record record) {
-        final var now = System.currentTimeMillis();
+        in(record, System.currentTimeMillis());
+    }
+
+    void in(Record record, long now) {
         final var recordTimestamp = TimeBucket.getTimestamp(record.getTimeBucket(), DownSampling.Minute);
-        final var isExpired = now - recordTimestamp > TimeUnit.DAYS.toMicros(recordDataTTL);
+        final var isExpired = now - recordTimestamp > TimeUnit.DAYS.toMillis(recordDataTTL);
         if (isExpired && !isTestingTTL) {
             log.debug("Receiving expired record: {}, time: {}, ignored", record.id(), record.getTimeBucket());
             return;
